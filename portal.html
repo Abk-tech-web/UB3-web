@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leadership Portal — UB3</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/responsive.css">
+<style>
+  body { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
+  .portal-wrap { width: 100%; max-width: 440px; }
+  .portal-card { padding: 40px 36px; }
+  .portal-tabs { display: flex; gap: 6px; margin-bottom: 28px; background: var(--surface); border: 1px solid var(--surface-border); border-radius: 999px; padding: 4px; }
+  .portal-tab { flex: 1; text-align: center; padding: 10px; border-radius: 999px; font-size: 13.5px; font-weight: 600; color: var(--silver-dim); background: none; border: none; transition: background 0.3s var(--ease), color 0.3s var(--ease); }
+  .portal-tab.active { background: var(--grad-primary); color: #fff; }
+  .portal-panel { display: none; }
+  .portal-panel.active { display: block; }
+  .portal-head { text-align: center; margin-bottom: 26px; }
+  .portal-head .brand { justify-content: center; margin-bottom: 12px; }
+  .portal-head p { color: var(--silver-dim); font-size: 13.5px; }
+  .field-hint { font-size: 12px; color: var(--silver-dim); margin-top: -8px; margin-bottom: 4px; }
+  .back-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--silver-dim); margin-bottom: 22px; }
+  .back-link:hover { color: var(--white); }
+</style>
+</head>
+<body>
+
+<div class="portal-wrap">
+  <a href="index.html" class="back-link">← Back to UB3</a>
+  <div class="portal-card glass">
+    <div class="portal-head">
+      <a href="index.html" class="brand"><span class="brand-mark">U3</span>UB3</a>
+      <p>Leadership Portal — secure access for UB3's 8 leaders</p>
+    </div>
+
+    <div class="portal-tabs">
+      <button class="portal-tab active" data-tab="login">Log In</button>
+      <button class="portal-tab" data-tab="create">Create Account</button>
+      <button class="portal-tab" data-tab="reset">Reset Password</button>
+    </div>
+
+    <!-- LOGIN -->
+    <div class="portal-panel active" data-panel="login">
+      <form id="login-form">
+        <div class="field"><label>Email</label><input type="email" name="email" required></div>
+        <div class="field"><label>Password</label><input type="password" name="password" required></div>
+        <button type="submit" class="btn btn-primary btn-block">Log In</button>
+        <p class="form-status" id="login-status"></p>
+      </form>
+    </div>
+
+    <!-- CREATE ACCOUNT -->
+    <div class="portal-panel" data-panel="create">
+      <form id="create-form">
+        <div class="field"><label>Full name</label><input type="text" name="name" required></div>
+        <div class="field"><label>Work email</label><input type="email" name="email" required></div>
+        <div class="field"><label>Password</label><input type="password" name="password" minlength="8" required></div>
+        <p class="field-hint">Minimum 8 characters.</p>
+        <div class="field"><label>Position</label><input type="text" name="position" placeholder="e.g. Head of Research" required></div>
+        <div class="field"><label>Department</label>
+          <select name="department" required>
+            <option value="">Select department</option>
+            <option>Executive</option>
+            <option>Operations</option>
+            <option>Research</option>
+            <option>Education</option>
+            <option>Opportunities</option>
+            <option>Community</option>
+            <option>Growth</option>
+            <option>Technology</option>
+          </select>
+        </div>
+        <div class="field"><label>Phone (optional)</label><input type="tel" name="phone"></div>
+        <div class="field"><label>Security question</label>
+          <select name="securityQuestion" required>
+            <option value="">Select a security question</option>
+            <option>What city were you born in?</option>
+            <option>What was your first pet's name?</option>
+            <option>What is your mother's maiden name?</option>
+          </select>
+        </div>
+        <div class="field"><label>Security answer</label><input type="text" name="securityAnswer" required></div>
+        <button type="submit" class="btn btn-primary btn-block">Create Account</button>
+        <p class="form-status" id="create-status"></p>
+      </form>
+    </div>
+
+    <!-- RESET PASSWORD -->
+    <div class="portal-panel" data-panel="reset">
+      <form id="reset-form">
+        <div class="field"><label>Account email</label><input type="email" name="email" required></div>
+        <p class="field-hint">We'll email you a secure link to reset your password.</p>
+        <button type="submit" class="btn btn-primary btn-block">Send Reset Link</button>
+        <p class="form-status" id="reset-status"></p>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/auth.js"></script>
+</body>
+</html>
