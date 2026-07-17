@@ -15,6 +15,7 @@ import {
   setDoc,
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { ALLOWED_LEADER_EMAILS } from "./leaders-data.js";
 
 /* ---------------------------------------------------------------------- */
 /* Tabs                                                                    */
@@ -79,13 +80,23 @@ document.getElementById("create-form")?.addEventListener("submit", async (e) => 
   status.className = "form-status";
   status.textContent = "";
 
+  const emailInput = (data.get("email") || "").trim().toLowerCase();
+
+  if (!ALLOWED_LEADER_EMAILS.includes(emailInput)) {
+    status.textContent = "Account creation is limited to UB3's 8 leaders. Contact the Head of Technology if this is a mistake.";
+    status.className = "form-status error";
+    btn.disabled = false;
+    btn.textContent = "Create Account";
+    return;
+  }
+
   try {
-    const cred = await createUserWithEmailAndPassword(auth, data.get("email"), data.get("password"));
+    const cred = await createUserWithEmailAndPassword(auth, emailInput, data.get("password"));
     await updateProfile(cred.user, { displayName: data.get("name") });
 
     await setDoc(doc(db, "leaders", cred.user.uid), {
       name: data.get("name"),
-      email: data.get("email"),
+      email: emailInput,
       position: data.get("position"),
       department: data.get("department"),
       phone: data.get("phone") || "",
