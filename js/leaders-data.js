@@ -92,24 +92,16 @@ export const LEADERS = [
 ];
 
 // ============================================================================
-// Allowlist — only these email addresses are permitted to create a portal
-// account. Fill in each leader's real email below (lowercase). This list is
-// checked in js/auth.js before signup, AND enforced server-side by
-// firestore.rules via the `allowlist` collection (see README for the
-// one-time step of adding matching documents there — the client-side check
-// alone can be bypassed by anyone calling the Firebase SDK directly, so the
-// Firestore rule is what actually protects your data).
+// Account cap — portal signup is capped at this many total accounts, no
+// email allowlist and no identity check required. The 9th person to try
+// "Create Account" is turned away with a friendly message. This is checked
+// client-side in js/auth.js for a fast, friendly message, AND enforced
+// server-side by firestore.rules via the `meta/stats` counter document —
+// the client-side check alone can be bypassed by anyone calling the
+// Firebase SDK directly, so the Firestore rule is what actually protects
+// this limit.
 // ============================================================================
-export const ALLOWED_LEADER_EMAILS = [
-  "leader1@example.com", // TODO: replace with real email
-  "leader2@example.com", // TODO: replace with real email
-  "leader3@example.com", // TODO: replace with real email
-  "leader4@example.com", // TODO: replace with real email
-  "leader5@example.com", // TODO: replace with real email
-  "leader6@example.com", // TODO: replace with real email
-  "leader7@example.com", // TODO: replace with real email
-  "leader8@example.com", // TODO: replace with real email
-];
+export const MAX_LEADER_ACCOUNTS = 8;
 
 export function initials(name) {
   return name
