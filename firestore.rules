@@ -3,14 +3,29 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ---- allowlist/{email} ---------------------------------------------
+    // One document per permitted leader email, doc ID = lowercase email
+    // (e.g. allowlist/jane@ub3.com). Content of the doc doesn't matter —
+    // its existence is what grants signup rights. Nobody can read, write,
+    // or delete this from the client; it's only ever checked via exists()
+    // below. Add/remove the 8 docs manually from the Firebase console.
+    match /allowlist/{email} {
+      allow read, write: if false;
+    }
+
     // ---- leaders/{uid} -----------------------------------------------
     // Anyone can read leader profiles (shown on the public site).
-    // Only the signed-in leader who owns the document can edit it, and
-    // only after they've created it (create is done by the app right
-    // after signup with a matching uid).
+    // Only the signed-in leader who owns the document can edit it.
+    // Creation is only allowed if the signed-up account's email is on
+    // the allowlist above — this is the real gate (the UI check in
+    // auth.js is just a friendlier first pass; this rule is what
+    // actually stops an unauthorized signup from writing data).
     match /leaders/{leaderId} {
       allow read: if true;
-      allow create: if request.auth != null && request.auth.uid == leaderId;
+      allow create: if request.auth != null
+                    && request.auth.uid == leaderId
+                    && request.auth.token.email != null
+                    && exists(/databases/$(database)/documents/allowlist/$(request.auth.token.email.lower()));
       allow update: if request.auth != null && request.auth.uid == leaderId;
       allow delete: if false;
     }
