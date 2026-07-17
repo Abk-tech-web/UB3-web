@@ -44,11 +44,14 @@ ub3-website/
    firebase deploy --only firestore:rules
    ```
    (Or paste the contents of `firestore.rules` into the Firebase console's Rules editor.)
-7. **Storage** — enable it if leaders should be able to upload real profile photos (used by `dashboard.js`).
-8. **Restrict signup to the 8 leaders (required for this to actually be private):**
-   - In `leaders-data.js`, edit `ALLOWED_LEADER_EMAILS` — replace the 8 placeholder emails with each leader's real email (lowercase).
-   - In the Firebase console, open **Firestore Database**, create a collection called `allowlist`, and add one document per leader: the **Document ID** must be their exact lowercase email (e.g. `jane@ub3.com`), with any single field inside (e.g. `allowed: true`). This is the part that actually blocks outsiders — the check in `auth.js` is just a friendlier error message; `firestore.rules` is what enforces it server-side.
-   - Redeploy `firestore.rules` (step 6 above) after editing it.
+7. **Storage** — enable it (Storage → Get started) so leaders can upload real profile photos. Then deploy the included rules:
+   ```bash
+   firebase init storage   # point it at this folder, use the existing storage.rules
+   firebase deploy --only storage
+   ```
+   (Or paste the contents of `storage.rules` into the Firebase console's Storage Rules editor.) Skipping this step means photo uploads will fail with a permission error, since Storage denies everything by default.
+8. **Account cap (already enforced, no setup needed):** signup isn't restricted by email or identity — anyone with the portal link can create an account, but only the first `MAX_LEADER_ACCOUNTS` (8, set in `js/leaders-data.js`) get in. Once 8 accounts exist, "Create Account" shows a friendly "spots are full" message. This is enforced server-side by the `meta/stats` rules in `firestore.rules` (a counter document), not just in the UI, so it can't be bypassed by calling the Firebase SDK directly. To change the cap, edit `MAX_LEADER_ACCOUNTS` in `js/leaders-data.js` **and** the two `<= 8` limits in `firestore.rules`, then redeploy rules (step 6).
+   - `firebase.json` is included so `firebase deploy --only firestore:rules,storage` deploys both rule files in one step (run `firebase init` once first to link this folder to your project, or just paste each rules file into the console as noted above).
 
 ## 2. Add real content
 
