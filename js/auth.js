@@ -12,10 +12,13 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   doc,
-  setDoc,
+  getDoc,
+  runTransaction,
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { ALLOWED_LEADER_EMAILS } from "./leaders-data.js";
+import { MAX_LEADER_ACCOUNTS } from "./leaders-data.js";
+
+const LIMIT_MESSAGE = `Account creation is limited to UB3's ${MAX_LEADER_ACCOUNTS} leaders. All ${MAX_LEADER_ACCOUNTS} spots have been filled — contact the Head of Technology if this is a mistake.`;
 
 /* ---------------------------------------------------------------------- */
 /* Tabs                                                                    */
@@ -81,41 +84,73 @@ document.getElementById("create-form")?.addEventListener("submit", async (e) => 
   status.textContent = "";
 
   const emailInput = (data.get("email") || "").trim().toLowerCase();
+  const statsRef = doc(db, "meta", "stats");
 
-  if (!ALLOWED_LEADER_EMAILS.includes(emailInput)) {
-    status.textContent = "Account creation is limited to UB3's 8 leaders. Contact the Head of Technology if this is a mistake.";
-    status.className = "form-status error";
-    btn.disabled = false;
-    btn.textContent = "Create Account";
-    return;
+  // Fast, friendly pre-check — anyone can read meta/stats (see firestore.rules),
+  // so we can tell people the spots are full before we even try to sign them up.
+  try {
+    const statsSnap = await getDoc(statsRef);
+    const currentCount = statsSnap.exists() ? (statsSnap.data().leaderCount || 0) : 0;
+    if (currentCount >= MAX_LEADER_ACCOUNTS) {
+      status.textContent = LIMIT_MESSAGE;
+      status.className = "form-status error";
+      btn.disabled = false;
+      btn.textContent = "Create Account";
+      return;
+    }
+  } catch (err) {
+    // If the pre-check itself fails, fall through — the transaction below is
+    // the real, authoritative gate and will catch it regardless.
   }
 
+  let cred;
   try {
-    const cred = await createUserWithEmailAndPassword(auth, emailInput, data.get("password"));
+    cred = await createUserWithEmailAndPassword(auth, emailInput, data.get("password"));
     await updateProfile(cred.user, { displayName: data.get("name") });
 
-    await setDoc(doc(db, "leaders", cred.user.uid), {
-      name: data.get("name"),
-      email: emailInput,
-      position: data.get("position"),
-      department: data.get("department"),
-      phone: data.get("phone") || "",
-      bio: "",
-      photoURL: "",
-      socials: { x: "", telegram: "" },
-      securityQuestion: data.get("securityQuestion"),
-      // NOTE: for real production use, verify the security answer server-side
-      // (e.g. via a Cloud Function) instead of trusting client-stored values.
-      securityAnswer: data.get("securityAnswer"),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
+    // Authoritative check: atomically read the current count and, only if
+    // there's still room, create the leader profile AND bump the counter in
+    // the same transaction. firestore.rules enforces the count can never
+    // exceed MAX_LEADER_ACCOUNTS, so this is safe even if two people submit
+    // at the exact same moment.
+    await runTransaction(db, async (tx) => {
+      const statsSnap = await tx.get(statsRef);
+      const currentCount = statsSnap.exists() ? (statsSnap.data().leaderCount || 0) : 0;
+      if (currentCount >= MAX_LEADER_ACCOUNTS) {
+        throw new Error("LEADER_LIMIT_REACHED");
+      }
+
+      tx.set(doc(db, "leaders", cred.user.uid), {
+        name: data.get("name"),
+        email: emailInput,
+        position: data.get("position"),
+        department: data.get("department"),
+        phone: data.get("phone") || "",
+        bio: "",
+        photoURL: "",
+        socials: { x: "", telegram: "" },
+        securityQuestion: data.get("securityQuestion"),
+        // NOTE: for real production use, verify the security answer server-side
+        // (e.g. via a Cloud Function) instead of trusting client-stored values.
+        securityAnswer: data.get("securityAnswer"),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      tx.set(statsRef, { leaderCount: currentCount + 1 }, { merge: true });
     });
 
     status.textContent = "Account created — redirecting…";
     status.className = "form-status success";
     window.location.href = "dashboard.html";
   } catch (err) {
-    status.textContent = friendlyAuthError(err);
+    // If we got as far as creating the Auth account but couldn't finish
+    // (limit hit in the race, or the write failed), don't leave behind an
+    // orphaned Auth user with no profile — remove it and sign out.
+    if (cred?.user) {
+      await cred.user.delete().catch(() => {});
+    }
+    status.textContent = err.message === "LEADER_LIMIT_REACHED" ? LIMIT_MESSAGE : friendlyAuthError(err);
     status.className = "form-status error";
   } finally {
     btn.disabled = false;
