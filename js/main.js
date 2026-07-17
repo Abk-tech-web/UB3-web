@@ -233,13 +233,30 @@ function openLeaderModal(id) {
   `;
 
   modalOverlay.classList.add("open");
-  modalContent.querySelector("[data-close-modal]").addEventListener("click", closeLeaderModal);
+  modalContent.querySelector("[data-close-modal]").addEventListener("click", () => closeLeaderModal());
   modalContent.querySelector("#leader-message-form").addEventListener("submit", handleLeaderMessage);
+
+  // Push a history entry so the phone/browser back button closes the modal
+  // instead of navigating away from the page.
+  if (!(history.state && history.state.ub3Modal)) {
+    history.pushState({ ub3Modal: true }, "");
+  }
 }
 
-function closeLeaderModal() {
-  modalOverlay?.classList.remove("open");
+function closeLeaderModal(fromPopState) {
+  if (!modalOverlay || !modalOverlay.classList.contains("open")) return;
+  modalOverlay.classList.remove("open");
+  // If we're closing via the X button / backdrop / Escape (not via the back
+  // button itself), unwind the history entry we pushed on open so back
+  // behaves normally afterwards.
+  if (!fromPopState && history.state && history.state.ub3Modal) {
+    history.back();
+  }
 }
+
+window.addEventListener("popstate", () => {
+  closeLeaderModal(true);
+});
 
 modalOverlay?.addEventListener("click", (e) => {
   if (e.target === modalOverlay) closeLeaderModal();
