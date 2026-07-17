@@ -3,29 +3,38 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ---- allowlist/{email} ---------------------------------------------
-    // One document per permitted leader email, doc ID = lowercase email
-    // (e.g. allowlist/jane@ub3.com). Content of the doc doesn't matter —
-    // its existence is what grants signup rights. Nobody can read, write,
-    // or delete this from the client; it's only ever checked via exists()
-    // below. Add/remove the 8 docs manually from the Firebase console.
-    match /allowlist/{email} {
-      allow read, write: if false;
+    // ---- meta/stats -----------------------------------------------------
+    // A single counter document tracking how many leader accounts exist
+    // (meta/stats -> { leaderCount: number }). Anyone can read it (so the
+    // portal can show a friendly "spots full" message before someone even
+    // tries to sign up). It can only ever be created at 1, or incremented
+    // by exactly 1 at a time, and can never exceed MAX_LEADER_ACCOUNTS
+    // below — this is what makes the 8-account cap race-safe: two people
+    // signing up at the same instant can't both succeed past 8.
+    match /meta/stats {
+      allow read: if true;
+      allow create: if request.auth != null && request.resource.data.leaderCount == 1;
+      allow update: if request.auth != null
+                    && request.resource.data.leaderCount == resource.data.leaderCount + 1
+                    && request.resource.data.leaderCount <= 8;
+      allow delete: if false;
     }
 
     // ---- leaders/{uid} -----------------------------------------------
     // Anyone can read leader profiles (shown on the public site).
     // Only the signed-in leader who owns the document can edit it.
-    // Creation is only allowed if the signed-up account's email is on
-    // the allowlist above — this is the real gate (the UI check in
-    // auth.js is just a friendlier first pass; this rule is what
-    // actually stops an unauthorized signup from writing data).
+    // Creation has NO identity/email check — signup is open to anyone —
+    // but is capped at 8 total accounts by checking the meta/stats
+    // counter above. js/auth.js creates this document and bumps the
+    // counter together in one transaction, so this rule and the
+    // meta/stats rule together are what actually enforce the cap
+    // server-side (the check in auth.js is just a friendlier first pass).
     match /leaders/{leaderId} {
       allow read: if true;
       allow create: if request.auth != null
                     && request.auth.uid == leaderId
-                    && request.auth.token.email != null
-                    && exists(/databases/$(database)/documents/allowlist/$(request.auth.token.email.lower()));
+                    && (!exists(/databases/$(database)/documents/meta/stats)
+                        || get(/databases/$(database)/documents/meta/stats).data.leaderCount < 8);
       allow update: if request.auth != null && request.auth.uid == leaderId;
       allow delete: if false;
     }
