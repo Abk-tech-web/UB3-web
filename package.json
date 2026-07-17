@@ -1,0 +1,12 @@
+{
+  "name": "ub3-website",
+  "version": "1.0.0",
+  "description": "UB3 (Unbound DAO 3) — official website and leadership management platform.",
+  "private": true,
+  "scripts": {
+    "start": "npx serve .",
+    "dev": "npx serve . -l 3000"
+  },
+  "keywords": ["ub3", "unbound-dao", "web3", "dao", "firebase"],
+  "license": "UNLICENSED"
+}
