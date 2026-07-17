@@ -45,6 +45,10 @@ ub3-website/
    ```
    (Or paste the contents of `firestore.rules` into the Firebase console's Rules editor.)
 7. **Storage** — enable it if leaders should be able to upload real profile photos (used by `dashboard.js`).
+8. **Restrict signup to the 8 leaders (required for this to actually be private):**
+   - In `leaders-data.js`, edit `ALLOWED_LEADER_EMAILS` — replace the 8 placeholder emails with each leader's real email (lowercase).
+   - In the Firebase console, open **Firestore Database**, create a collection called `allowlist`, and add one document per leader: the **Document ID** must be their exact lowercase email (e.g. `jane@ub3.com`), with any single field inside (e.g. `allowed: true`). This is the part that actually blocks outsiders — the check in `auth.js` is just a friendlier error message; `firestore.rules` is what enforces it server-side.
+   - Redeploy `firestore.rules` (step 6 above) after editing it.
 
 ## 2. Add real content
 
