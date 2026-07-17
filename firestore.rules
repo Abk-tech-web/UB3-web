@@ -1,0 +1,38 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- leaders/{uid} -----------------------------------------------
+    // Anyone can read leader profiles (shown on the public site).
+    // Only the signed-in leader who owns the document can edit it, and
+    // only after they've created it (create is done by the app right
+    // after signup with a matching uid).
+    match /leaders/{leaderId} {
+      allow read: if true;
+      allow create: if request.auth != null && request.auth.uid == leaderId;
+      allow update: if request.auth != null && request.auth.uid == leaderId;
+      allow delete: if false;
+    }
+
+    // ---- messages/{messageId} -----------------------------------------
+    // Visitors (unauthenticated) can create a message for a leader or the
+    // general inbox. Only the addressed leader can read or update
+    // (mark as read) their own messages. Nobody can delete via the client.
+    match /messages/{messageId} {
+      allow create: if request.resource.data.keys().hasAll(['toLeaderId', 'fromName', 'fromEmail', 'body'])
+                    && request.resource.data.fromName is string
+                    && request.resource.data.fromEmail is string
+                    && request.resource.data.body is string;
+      allow read, update: if request.auth != null && request.auth.uid == resource.data.toLeaderId;
+      allow delete: if false;
+    }
+
+    // ---- notifications/{notificationId} --------------------------------
+    match /notifications/{notificationId} {
+      allow read, update: if request.auth != null && request.auth.uid == resource.data.leaderId;
+      allow create: if request.auth != null;
+      allow delete: if false;
+    }
+  }
+}
