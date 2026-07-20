@@ -330,7 +330,13 @@ function watchInbox() {
     },
     (err) => {
       const detail = err?.message || err?.code || "unknown error";
-      document.getElementById("msg-list").innerHTML = `<div class="empty-state">Couldn't load messages right now.<br><small style="opacity:.7;word-break:break-all;">(${detail})</small></div>`;
+      const urlMatch = detail.match(/https:\/\/console\.firebase\.google\.com\S+/);
+      const detailHtml = urlMatch
+        ? detail.slice(0, urlMatch.index) +
+          `<a href="${urlMatch[0]}" target="_blank" rel="noopener" style="color:#7dd3fc;text-decoration:underline;">Tap here to create the required index</a>` +
+          detail.slice(urlMatch.index + urlMatch[0].length)
+        : detail;
+      document.getElementById("msg-list").innerHTML = `<div class="empty-state">Couldn't load messages right now.<br><small style="opacity:.7;word-break:break-word;">(${detailHtml})</small></div>`;
       console.error(err);
     }
   );
