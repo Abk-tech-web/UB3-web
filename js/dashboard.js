@@ -329,7 +329,8 @@ function watchInbox() {
       updateUnreadCount(unread);
     },
     (err) => {
-      document.getElementById("msg-list").innerHTML = `<div class="empty-state">Couldn't load messages right now.</div>`;
+      const detail = err?.code || err?.message || "unknown error";
+      document.getElementById("msg-list").innerHTML = `<div class="empty-state">Couldn't load messages right now.<br><small style="opacity:.7">(${detail})</small></div>`;
       console.error(err);
     }
   );
