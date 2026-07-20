@@ -13,6 +13,7 @@ import {
 import {
   doc,
   getDoc,
+  setDoc,
   updateDoc,
   collection,
   query,
@@ -90,8 +91,27 @@ onAuthStateChanged(auth, async (user) => {
   }
   currentUser = user;
 
-  const snap = await getDoc(doc(db, "leaders", user.uid));
-  currentLeader = snap.exists() ? snap.data() : { name: user.displayName || "Leader", email: user.email };
+  const leaderRef = doc(db, "leaders", user.uid);
+  const snap = await getDoc(leaderRef);
+  if (snap.exists()) {
+    currentLeader = snap.data();
+  } else {
+    // Auth account exists but its Firestore profile is missing (e.g. it
+    // never finished being created). Create it now so future saves work.
+    currentLeader = {
+      name: user.displayName || "Leader",
+      email: user.email || "",
+      position: "",
+      department: "Executive",
+      phone: "",
+      bio: "",
+      photoURL: "",
+      socials: { x: "", telegram: "" },
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    await setDoc(leaderRef, currentLeader).catch((err) => console.error("Could not create missing leader profile:", err));
+  }
 
   document.getElementById("auth-gate").style.display = "none";
   document.getElementById("dash-shell").style.display = "grid";
