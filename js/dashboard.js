@@ -2,7 +2,7 @@
 // UB3 — Leader dashboard logic
 // ============================================================================
 
-import { auth, db, storage } from "./firebase.js";
+import { auth, db } from "./firebase.js";
 import {
   onAuthStateChanged,
   signOut,
@@ -21,12 +21,22 @@ import {
   onSnapshot,
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import {
-  ref,
-  uploadBytes,
-  getDownloadURL,
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 import { initials } from "./leaders-data.js";
+
+// Max photo size accepted for the profile picture. Photos are stored as a
+// base64 string directly inside the leader's Firestore document (no
+// Firebase Storage / Blaze plan required), so this must stay well under
+// Firestore's 1MB per-document limit.
+const MAX_PHOTO_BYTES = 700 * 1024; // 700KB raw file (~950KB once base64-encoded)
+
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error("Could not read file"));
+    reader.readAsDataURL(file);
+  });
+}
 
 let currentUser = null;
 let currentLeader = null;
@@ -123,9 +133,13 @@ document.getElementById("profile-form")?.addEventListener("submit", async (e) =>
     let photoURL = currentLeader.photoURL || "";
     const file = document.getElementById("photo-input").files[0];
     if (file) {
-      const fileRef = ref(storage, `leader-photos/${currentUser.uid}`);
-      await uploadBytes(fileRef, file);
-      photoURL = await getDownloadURL(fileRef);
+      if (!file.type.startsWith("image/")) {
+        throw new Error("Please choose an image file.");
+      }
+      if (file.size > MAX_PHOTO_BYTES) {
+        throw new Error("Photo is too large. Please choose an image under 700KB.");
+      }
+      photoURL = await readFileAsDataURL(file);
     }
 
     const updates = {
@@ -146,7 +160,9 @@ document.getElementById("profile-form")?.addEventListener("submit", async (e) =>
     status.textContent = "Profile updated successfully.";
     status.className = "form-status success";
   } catch (err) {
-    status.textContent = "Couldn't save changes. Please try again.";
+    status.textContent = err?.message?.startsWith("Photo") || err?.message?.startsWith("Please choose")
+      ? err.message
+      : "Couldn't save changes. Please try again.";
     status.className = "form-status error";
     console.error(err);
   } finally {
