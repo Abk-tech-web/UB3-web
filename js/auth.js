@@ -18,6 +18,24 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { MAX_LEADER_ACCOUNTS } from "./leaders-data.js";
 
+/* ---------------------------------------------------------------------- */
+/* Password show/hide toggles                                              */
+/* ---------------------------------------------------------------------- */
+document.querySelectorAll("[data-toggle-password]").forEach((btn) => {
+  const input = btn.closest(".password-field")?.querySelector("input");
+  const eyeIcon = btn.querySelector("[data-icon-eye]");
+  const eyeOffIcon = btn.querySelector("[data-icon-eye-off]");
+  if (!input) return;
+
+  btn.addEventListener("click", () => {
+    const showing = input.type === "text";
+    input.type = showing ? "password" : "text";
+    eyeIcon.style.display = showing ? "" : "none";
+    eyeOffIcon.style.display = showing ? "none" : "";
+    btn.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+  });
+});
+
 const LIMIT_MESSAGE = `Account creation is limited to UB3's ${MAX_LEADER_ACCOUNTS} leaders. All ${MAX_LEADER_ACCOUNTS} spots have been filled — contact the Head of Technology if this is a mistake.`;
 
 /* ---------------------------------------------------------------------- */
@@ -82,6 +100,14 @@ document.getElementById("create-form")?.addEventListener("submit", async (e) => 
   btn.textContent = "Creating account…";
   status.className = "form-status";
   status.textContent = "";
+
+  if (data.get("password") !== data.get("confirmPassword")) {
+    status.textContent = "Passwords don't match. Please check and try again.";
+    status.className = "form-status error";
+    btn.disabled = false;
+    btn.textContent = "Create Account";
+    return;
+  }
 
   const emailInput = (data.get("email") || "").trim().toLowerCase();
   const statsRef = doc(db, "meta", "stats");
