@@ -27,14 +27,53 @@ import { initials } from "./leaders-data.js";
 // base64 string directly inside the leader's Firestore document (no
 // Firebase Storage / Blaze plan required), so this must stay well under
 // Firestore's 1MB per-document limit.
-const MAX_PHOTO_BYTES = 700 * 1024; // 700KB raw file (~950KB once base64-encoded)
+// Max size we allow the final base64 photo string to be. Photos are stored
+// directly inside the leader's Firestore document (no Firebase Storage /
+// Blaze plan required), so this must stay well under Firestore's 1MB
+// per-document limit, leaving plenty of room for the rest of the profile.
+const MAX_PHOTO_DATA_URL_BYTES = 300 * 1024; // ~300KB final encoded size
+const PHOTO_MAX_DIMENSION = 480; // px, longest side
 
-function readFileAsDataURL(file) {
+// Resizes/compresses an image file in the browser (via canvas) and returns
+// a small base64 data URL, regardless of how large the original photo is.
+function resizeImageToDataURL(file, maxDimension = PHOTO_MAX_DIMENSION) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error || new Error("Could not read file"));
-    reader.readAsDataURL(file);
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      let { width, height } = img;
+      if (width > height && width > maxDimension) {
+        height = Math.round((height * maxDimension) / width);
+        width = maxDimension;
+      } else if (height > maxDimension) {
+        width = Math.round((width * maxDimension) / height);
+        height = maxDimension;
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Try decreasing JPEG quality until the result is small enough.
+      let quality = 0.85;
+      let dataUrl = canvas.toDataURL("image/jpeg", quality);
+      while (dataUrl.length > MAX_PHOTO_DATA_URL_BYTES && quality > 0.3) {
+        quality -= 0.15;
+        dataUrl = canvas.toDataURL("image/jpeg", quality);
+      }
+      if (dataUrl.length > MAX_PHOTO_DATA_URL_BYTES) {
+        reject(new Error("Photo is too large even after compression. Please choose a simpler image."));
+        return;
+      }
+      resolve(dataUrl);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Could not read that image file."));
+    };
+    img.src = objectUrl;
   });
 }
 
@@ -136,10 +175,7 @@ document.getElementById("profile-form")?.addEventListener("submit", async (e) =>
       if (!file.type.startsWith("image/")) {
         throw new Error("Please choose an image file.");
       }
-      if (file.size > MAX_PHOTO_BYTES) {
-        throw new Error("Photo is too large. Please choose an image under 700KB.");
-      }
-      photoURL = await readFileAsDataURL(file);
+      photoURL = await resizeImageToDataURL(file);
     }
 
     const updates = {
@@ -160,9 +196,7 @@ document.getElementById("profile-form")?.addEventListener("submit", async (e) =>
     status.textContent = "Profile updated successfully.";
     status.className = "form-status success";
   } catch (err) {
-    status.textContent = err?.message?.startsWith("Photo") || err?.message?.startsWith("Please choose")
-      ? err.message
-      : "Couldn't save changes. Please try again.";
+    status.textContent = err?.message || "Couldn't save changes. Please try again.";
     status.className = "form-status error";
     console.error(err);
   } finally {
