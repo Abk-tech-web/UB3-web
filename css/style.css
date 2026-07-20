@@ -355,7 +355,7 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
 .leader-photo img { width: 100%; height: 100%; object-fit: cover; }
 .leader-body { padding: 20px 20px 22px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
 .leader-body h3 { font-size: 16.5px; }
-.verified-badge { width: 0.85em; height: 0.85em; vertical-align: -0.08em; margin-left: 5px; flex-shrink: 0; }
+.verified-badge { width: 1.25em; height: 1.25em; vertical-align: -0.22em; margin-left: 6px; flex-shrink: 0; }
 .leader-body .l-role { font-size: 13px; color: var(--cyan-glow); font-family: var(--font-mono); }
 .leader-body .l-dept { font-size: 12.5px; color: var(--silver-dim); margin-bottom: 10px; }
 .leader-body .l-bio { font-size: 13px; color: var(--silver); margin-bottom: 16px; flex: 1; }
