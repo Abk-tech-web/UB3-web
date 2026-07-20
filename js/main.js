@@ -10,10 +10,55 @@ import { db } from "./firebase.js";
 import {
   collection,
   addDoc,
+  getDocs,
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { LEADERS, initials } from "./leaders-data.js";
 import { ICONS } from "./icons.js";
+
+/* ---------------------------------------------------------------------- */
+/* Live leader accounts                                                    */
+/* Each entry in LEADERS (leaders-data.js) reserves ONE position slot on   */
+/* the team. When someone creates a portal account with a matching         */
+/* position, their real profile (photo, bio, socials, and Firebase Auth    */
+/* uid) is overlaid onto that slot here — so the public site automatically */
+/* reflects whoever currently holds that position, and messages route to  */
+/* their real account instead of a static placeholder id.                  */
+/* ---------------------------------------------------------------------- */
+function normalizePosition(pos) {
+  return (pos || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+async function loadLiveLeaders() {
+  try {
+    const snap = await getDocs(collection(db, "leaders"));
+    const byPosition = new Map();
+    snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      const key = normalizePosition(data.position);
+      if (key) byPosition.set(key, { ...data, uid: docSnap.id });
+    });
+
+    LEADERS.forEach((slot) => {
+      const live = byPosition.get(normalizePosition(slot.position));
+      if (!live) return;
+      slot.uid = live.uid;
+      if (live.name) slot.name = live.name;
+      if (live.photoURL) slot.photo = live.photoURL;
+      if (live.bio) slot.bio = live.bio;
+      if (live.email) slot.email = live.email;
+      if (live.socials?.x) slot.socials = { ...slot.socials, x: live.socials.x };
+      if (live.socials?.telegram) slot.socials = { ...slot.socials, telegram: live.socials.telegram };
+    });
+  } catch (err) {
+    // If this fails (offline, rules issue, etc.) the public site still
+    // works fine with the static roster — it just won't reflect live
+    // profile edits until the next successful load.
+    console.warn("Could not load live leader profiles:", err);
+  }
+}
+
+const liveLeadersReady = loadLiveLeaders();
 
 /* ---------------------------------------------------------------------- */
 /* Theme                                                                   */
@@ -174,7 +219,10 @@ function socialLinks(leader) {
   return items.join("");
 }
 
-if (leadersGrid) {
+async function renderLeadersGrid() {
+  if (!leadersGrid) return;
+  await liveLeadersReady;
+
   leadersGrid.innerHTML = LEADERS.map(
     (l, idx) => `
     <article class="leader-card glass reveal" style="transition-delay:${idx * 0.05}s">
@@ -202,6 +250,8 @@ if (leadersGrid) {
   leadersGrid.querySelectorAll(".reveal").forEach((el) => io.observe(el));
 }
 
+renderLeadersGrid();
+
 const modalOverlay = document.getElementById("leader-modal");
 const modalContent = document.getElementById("leader-modal-content");
 
@@ -222,7 +272,7 @@ function openLeaderModal(id) {
     <div class="modal-body">
       <p class="l-bio">${leader.bio}</p>
       <div class="l-socials" style="margin-bottom:22px;">${socialLinks(leader)}</div>
-      <form id="leader-message-form" data-leader-id="${leader.id}" data-leader-name="${leader.name}">
+      <form id="leader-message-form" data-leader-id="${leader.uid || leader.id}" data-leader-name="${leader.name}">
         <div class="field"><label>Your name</label><input type="text" name="name" required></div>
         <div class="field"><label>Your email</label><input type="email" name="email" required></div>
         <div class="field"><label>Message</label><textarea name="message" rows="4" required></textarea></div>
