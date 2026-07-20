@@ -78,6 +78,33 @@ function resizeImageToDataURL(file, maxDimension = PHOTO_MAX_DIMENSION) {
   });
 }
 
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error("Could not read file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+// Some phones/browsers occasionally fail to decode a picked image through
+// the <img>/canvas path (even for a perfectly valid file) — memory
+// pressure, an unusual color profile, etc. If that happens, fall back to
+// storing the original file directly (still capped in size) so the save
+// isn't blocked entirely.
+async function photoFileToStoredURL(file) {
+  try {
+    return await resizeImageToDataURL(file);
+  } catch (resizeErr) {
+    console.warn("Photo resize failed, falling back to raw upload:", resizeErr);
+    const RAW_FALLBACK_MAX_BYTES = 650 * 1024; // keep base64 result comfortably under Firestore's 1MB doc limit
+    if (file.size > RAW_FALLBACK_MAX_BYTES) {
+      throw new Error("Couldn't process that photo, and it's too large to store as-is. Please try a smaller image (under 650KB) or a different photo.");
+    }
+    return await readFileAsDataURL(file);
+  }
+}
+
 let currentUser = null;
 let currentLeader = null;
 
@@ -195,7 +222,7 @@ document.getElementById("profile-form")?.addEventListener("submit", async (e) =>
       if (!file.type.startsWith("image/")) {
         throw new Error("Please choose an image file.");
       }
-      photoURL = await resizeImageToDataURL(file);
+      photoURL = await photoFileToStoredURL(file);
     }
 
     const updates = {
