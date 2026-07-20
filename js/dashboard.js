@@ -205,6 +205,43 @@ function populateProfileForm() {
   form.telegram.value = currentLeader.socials?.telegram || "";
 }
 
+// Holds the processed (resized/compressed) photo data URL for whatever was
+// most recently picked in the file input. We read the file immediately on
+// selection rather than waiting for Save — some mobile browsers invalidate
+// the File reference if too much time passes or the page state changes
+// before it's read, causing a "file could not be read" error at submit time.
+let pendingPhotoDataURL = null;
+let pendingPhotoError = null;
+
+document.getElementById("photo-input")?.addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  pendingPhotoDataURL = null;
+  pendingPhotoError = null;
+  if (!file) return;
+
+  const preview = document.getElementById("profile-avatar-preview");
+  const status = document.getElementById("profile-status");
+  if (!file.type.startsWith("image/")) {
+    pendingPhotoError = "Please choose an image file.";
+    status.textContent = pendingPhotoError;
+    status.className = "form-status error";
+    return;
+  }
+
+  preview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="Preview">`;
+  status.textContent = "Processing photo…";
+  status.className = "form-status";
+  try {
+    pendingPhotoDataURL = await photoFileToStoredURL(file);
+    status.textContent = "Photo ready — click Save Changes to apply.";
+    status.className = "form-status success";
+  } catch (err) {
+    pendingPhotoError = err?.message || "Couldn't process that photo.";
+    status.textContent = pendingPhotoError;
+    status.className = "form-status error";
+  }
+});
+
 document.getElementById("profile-form")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.target;
@@ -216,14 +253,10 @@ document.getElementById("profile-form")?.addEventListener("submit", async (e) =>
   btn.textContent = "Saving…";
 
   try {
-    let photoURL = currentLeader.photoURL || "";
-    const file = document.getElementById("photo-input").files[0];
-    if (file) {
-      if (!file.type.startsWith("image/")) {
-        throw new Error("Please choose an image file.");
-      }
-      photoURL = await photoFileToStoredURL(file);
+    if (pendingPhotoError) {
+      throw new Error(pendingPhotoError);
     }
+    const photoURL = pendingPhotoDataURL || currentLeader.photoURL || "";
 
     const updates = {
       name: data.get("name"),
@@ -238,6 +271,8 @@ document.getElementById("profile-form")?.addEventListener("submit", async (e) =>
 
     await updateDoc(doc(db, "leaders", currentUser.uid), updates);
     currentLeader = { ...currentLeader, ...updates };
+    pendingPhotoDataURL = null;
+    pendingPhotoError = null;
 
     populateOverview();
     status.textContent = "Profile updated successfully.";
@@ -250,13 +285,6 @@ document.getElementById("profile-form")?.addEventListener("submit", async (e) =>
     btn.disabled = false;
     btn.textContent = "Save Changes";
   }
-});
-
-document.getElementById("photo-input")?.addEventListener("change", (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const preview = document.getElementById("profile-avatar-preview");
-  preview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="Preview">`;
 });
 
 /* ---------------------------------------------------------------------- */
