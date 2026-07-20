@@ -10,6 +10,16 @@
 
 export const LEADERS = [
   {
+    id: "leader-00",
+    name: "UB3 Official Account",
+    position: "UNBOUND_DAO3",
+    department: "Official",
+    bio: "",
+    photo: "",
+    email: "",
+    socials: { x: "", telegram: "" },
+  },
+  {
     id: "leader-01",
     name: "Aisha",
     position: "Team Lead & Growth Coordinator",
@@ -93,7 +103,7 @@ export const LEADERS = [
 
 // ============================================================================
 // Account cap — portal signup is capped at this many total accounts, no
-// email allowlist and no identity check required. The 9th person to try
+// email allowlist and no identity check required. The 10th person to try
 // "Create Account" is turned away with a friendly message. This is checked
 // client-side in js/auth.js for a fast, friendly message, AND enforced
 // server-side by firestore.rules via the `meta/stats` counter document —
@@ -101,7 +111,7 @@ export const LEADERS = [
 // Firebase SDK directly, so the Firestore rule is what actually protects
 // this limit.
 // ============================================================================
-export const MAX_LEADER_ACCOUNTS = 8;
+export const MAX_LEADER_ACCOUNTS = 9;
 
 export function initials(name) {
   return name
