@@ -26,12 +26,12 @@ import { getStorage } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-
 
 // ---- REPLACE WITH YOUR OWN PROJECT CONFIG ---------------------------------
 const FIREBASE_CONFIG = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID",
+  apiKey: "AIzaSyCGfyQuou4Y7q02XJQpzx1EDEQh3ntEJZs",
+  authDomain: "ub3-platform.firebaseapp.com",
+  projectId: "ub3-platform",
+  storageBucket: "ub3-platform.firebasestorage.app",
+  messagingSenderId: "893931516716",
+  appId: "1:893931516716:web:42830fc2ce2a5e01493289",
 };
 // -----------------------------------------------------------------------------
 
