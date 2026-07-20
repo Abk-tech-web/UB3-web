@@ -211,6 +211,19 @@ document.querySelectorAll("[data-count]").forEach((el) => {
 /* ---------------------------------------------------------------------- */
 const leadersGrid = document.getElementById("leaders-grid");
 
+// A leader's card gets a verified checkmark once a real portal account has
+// claimed their position (i.e. main.js's live-data merge found a match —
+// see slot.uid in loadLiveLeaders() above). The one reserved for
+// "UNBOUND_DAO3" — UB3's official account — gets a gold badge instead of
+// the usual blue one, matching X/Twitter's style for official orgs.
+function verifiedBadge(leader) {
+  if (!leader.uid) return "";
+  const isOfficial = normalizePosition(leader.position) === normalizePosition("UNBOUND_DAO3");
+  const fill = isOfficial ? "#f2b90c" : "#1d9bf0";
+  const label = isOfficial ? "Official UB3 account" : "Verified leader account";
+  return `<svg class="verified-badge" viewBox="0 0 22 22" aria-label="${label}" role="img"><title>${label}</title><path fill="${fill}" d="M20.396 11c-.018-.646-.215-1.275-.57-1.816a3.4 3.4 0 0 0-1.5-1.3 3.6 3.6 0 0 0-.428-1.921 3.5 3.5 0 0 0-1.483-1.47 3.4 3.4 0 0 0-1.916-.435 3.6 3.6 0 0 0-1.279-1.482 3.5 3.5 0 0 0-1.94-.588c-.696 0-1.372.203-1.94.588a3.6 3.6 0 0 0-1.279 1.482 3.4 3.4 0 0 0-1.916.435 3.5 3.5 0 0 0-1.483 1.47 3.6 3.6 0 0 0-.428 1.921 3.4 3.4 0 0 0-1.5 1.3A3.6 3.6 0 0 0 1.164 11c.018.646.215 1.275.57 1.816a3.4 3.4 0 0 0 1.5 1.3 3.6 3.6 0 0 0 .428 1.921 3.5 3.5 0 0 0 1.483 1.47 3.4 3.4 0 0 0 1.916.435 3.6 3.6 0 0 0 1.279 1.482 3.5 3.5 0 0 0 1.94.588c.696 0 1.372-.203 1.94-.588a3.6 3.6 0 0 0 1.279-1.482 3.4 3.4 0 0 0 1.916-.435 3.5 3.5 0 0 0 1.483-1.47 3.6 3.6 0 0 0 .428-1.921 3.4 3.4 0 0 0 1.5-1.3c.355-.541.552-1.17.57-1.816Z"/><path fill="#fff" d="m9.653 14.487-3.28-3.28 1.084-1.084 2.196 2.196 4.688-4.688 1.084 1.084z"/></svg>`;
+}
+
 function socialLinks(leader) {
   const items = [];
   if (leader.socials?.x) items.push(`<a href="${leader.socials.x}" target="_blank" rel="noopener" aria-label="${leader.name} on X">${ICONS.x}</a>`);
@@ -230,7 +243,7 @@ async function renderLeadersGrid() {
         ${l.photo ? `<img src="${l.photo}" alt="${l.name}" loading="lazy">` : initials(l.name)}
       </div>
       <div class="leader-body">
-        <h3>${l.name}</h3>
+        <h3>${l.name}${verifiedBadge(l)}</h3>
         <div class="l-role">${l.position}</div>
         <div class="l-dept">${l.department}</div>
         <p class="l-bio">${l.bio}</p>
@@ -264,7 +277,7 @@ function openLeaderModal(id) {
     <div class="modal-head">
       <div class="leader-photo">${leader.photo ? `<img src="${leader.photo}" alt="${leader.name}">` : initials(leader.name)}</div>
       <div>
-        <h3>${leader.name}</h3>
+        <h3>${leader.name}${verifiedBadge(leader)}</h3>
         <div class="l-role">${leader.position}</div>
         <div class="l-dept">${leader.department}</div>
       </div>
