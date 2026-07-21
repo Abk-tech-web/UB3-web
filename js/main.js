@@ -12,6 +12,10 @@ import {
   addDoc,
   getDocs,
   serverTimestamp,
+  query,
+  orderBy,
+  limit,
+  onSnapshot,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { LEADERS, initials } from "./leaders-data.js";
 import { ICONS } from "./icons.js";
@@ -524,3 +528,93 @@ contactForm?.addEventListener("submit", async (e) => {
 /* ---------------------------------------------------------------------- */
 const yearEl = document.getElementById("year");
 if (yearEl) yearEl.textContent = new Date().getFullYear();
+
+/* ---------------------------------------------------------------------- */
+/* Announcements feed (public — reads the `announcements` collection)      */
+/* Any of the 9 leader accounts can publish a post from their dashboard;   */
+/* this renders them live on the homepage, pinned posts first.             */
+/* ---------------------------------------------------------------------- */
+const announcementsList = document.getElementById("announcements-list");
+
+function announcementAvatar(a) {
+  return a.authorPhoto
+    ? `<img src="${a.authorPhoto}" alt="${a.authorName || "UB3"}">`
+    : initials(a.authorName || "UB3");
+}
+
+function timeAgo(date) {
+  if (!date) return "";
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  const units = [
+    ["year", 31536000], ["month", 2592000], ["week", 604800],
+    ["day", 86400], ["hour", 3600], ["minute", 60],
+  ];
+  for (const [name, secs] of units) {
+    const val = Math.floor(seconds / secs);
+    if (val >= 1) return `${val} ${name}${val > 1 ? "s" : ""} ago`;
+  }
+  return "Just now";
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str || "";
+  return div.innerHTML;
+}
+
+if (announcementsList) {
+  const annQuery = query(
+    collection(db, "announcements"),
+    orderBy("pinned", "desc"),
+    orderBy("createdAt", "desc"),
+    limit(20)
+  );
+
+  onSnapshot(
+    annQuery,
+    (snap) => {
+      if (snap.empty) {
+        announcementsList.innerHTML = `<div class="announcements-empty glass">No announcements yet — check back soon for updates from the UB3 team.</div>`;
+        return;
+      }
+
+      announcementsList.innerHTML = snap.docs
+        .map((docSnap, idx) => {
+          const a = docSnap.data();
+          const time = a.createdAt?.toDate ? timeAgo(a.createdAt.toDate()) : "";
+          return `
+            <article class="announcement-card glass reveal${a.pinned ? " pinned" : ""}" style="transition-delay:${Math.min(idx, 6) * 0.04}s">
+              <div class="announcement-top">
+                <div class="announcement-author">
+                  <div class="announcement-avatar">${announcementAvatar(a)}</div>
+                  <div class="announcement-who">
+                    <div class="announcement-name">${escapeHtml(a.authorName || "UB3")}</div>
+                    <div class="announcement-role">${escapeHtml(a.authorPosition || "")}</div>
+                  </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                  ${a.pinned ? `<span class="announcement-pin-badge">${ICONS.pin}Pinned</span>` : ""}
+                  <span class="announcement-time">${time}</span>
+                </div>
+              </div>
+              <h3 class="announcement-title">${escapeHtml(a.title)}</h3>
+              <p class="announcement-body">${escapeHtml(a.body)}</p>
+            </article>`;
+        })
+        .join("");
+
+      announcementsList.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+    },
+    (err) => {
+      const detail = err?.message || err?.code || "unknown error";
+      const urlMatch = detail.match(/https:\/\/console\.firebase\.google\.com\S+/);
+      const detailHtml = urlMatch
+        ? detail.slice(0, urlMatch.index) +
+          `<a href="${urlMatch[0]}" target="_blank" rel="noopener" style="color:#7dd3fc;text-decoration:underline;">Tap here to create the required index</a>` +
+          detail.slice(urlMatch.index + urlMatch[0].length)
+        : "Couldn't load announcements right now. Please refresh the page.";
+      announcementsList.innerHTML = `<div class="announcements-empty glass">${detailHtml}</div>`;
+      console.error("Announcements feed error:", err);
+    }
+  );
+}
