@@ -59,6 +59,15 @@ ub3-website/
 - `assets/img/` — drop in real leader photos and point each leader's `photo` field at the file.
 - Each leader creates their own login from **Leadership Portal → Create Account** on the live site; that account is what lets them edit their own profile and inbox from `dashboard.html`.
 
+## Announcements
+
+The homepage now has a public **Announcements** section (`#announcements` on `index.html`) that streams live from a new `announcements` Firestore collection. Any of the 9 leader accounts can publish a post from their dashboard's **Announcements** tab (title, message, optional "pin to top"), and it appears instantly on the homepage — no redeploy needed.
+
+- Read access is public (anyone visiting the site can see announcements); only a signed-in leader can create one, and only as themselves. Enforced in `firestore.rules`.
+- A leader can only edit or delete their own posts, from their dashboard's "Your Announcements" list.
+- **One-time setup:** the homepage feed queries by `pinned` then `createdAt`, which needs a Firestore composite index the first time it runs. If the feed shows a "couldn't load" message with a link, click it (it opens the Firebase console with the index pre-filled) — takes a minute to build, then the feed loads normally from then on.
+- Deploy the updated `firestore.rules` (see step 6 above) after pulling this update, or the Announcements tab won't be able to post.
+
 ## 3. Run locally
 
 No build tools needed:
@@ -87,7 +96,7 @@ or just open `index.html` directly in a browser (Firebase Auth popups work best 
 
 ## Roadmap-ready architecture
 
-`leaders/`, `messages/`, and `notifications/` Firestore collections are structured so an admin dashboard, member accounts, events, blog, task management, and DAO governance/voting modules can be added later without restructuring the existing data.
+`leaders/`, `messages/`, `announcements/`, and `notifications/` Firestore collections are structured so an admin dashboard, member accounts, events, blog, task management, and DAO governance/voting modules can be added later without restructuring the existing data.
 
 ---
 
