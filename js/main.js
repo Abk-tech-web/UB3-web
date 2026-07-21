@@ -315,6 +315,7 @@ document.addEventListener("click", (e) => {
       showBadgeInfo({
         iconHtml: VERIFIED_ICON_BLUE,
         text: "This account is verified because it's an affiliate with UB3.",
+        sinceText: formatVerifiedSince(badgeBtn.dataset.created),
       });
     }
   } else if (badgeBtn.dataset.badgeKind === "affiliate") {
