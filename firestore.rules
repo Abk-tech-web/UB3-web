@@ -9,14 +9,14 @@ service cloud.firestore {
     // portal can show a friendly "spots full" message before someone even
     // tries to sign up). It can only ever be created at 1, or incremented
     // by exactly 1 at a time, and can never exceed MAX_LEADER_ACCOUNTS
-    // below — this is what makes the 8-account cap race-safe: two people
-    // signing up at the same instant can't both succeed past 8.
+    // below — this is what makes the 9-account cap race-safe: two people
+    // signing up at the same instant can't both succeed past 9.
     match /meta/stats {
       allow read: if true;
       allow create: if request.auth != null && request.resource.data.leaderCount == 1;
       allow update: if request.auth != null
                     && request.resource.data.leaderCount == resource.data.leaderCount + 1
-                    && request.resource.data.leaderCount <= 8;
+                    && request.resource.data.leaderCount <= 9;
       allow delete: if false;
     }
 
@@ -24,7 +24,7 @@ service cloud.firestore {
     // Anyone can read leader profiles (shown on the public site).
     // Only the signed-in leader who owns the document can edit it.
     // Creation has NO identity/email check — signup is open to anyone —
-    // but is capped at 8 total accounts by checking the meta/stats
+    // but is capped at 9 total accounts by checking the meta/stats
     // counter above. js/auth.js creates this document and bumps the
     // counter together in one transaction, so this rule and the
     // meta/stats rule together are what actually enforce the cap
@@ -34,7 +34,7 @@ service cloud.firestore {
       allow create: if request.auth != null
                     && request.auth.uid == leaderId
                     && (!exists(/databases/$(database)/documents/meta/stats)
-                        || get(/databases/$(database)/documents/meta/stats).data.leaderCount < 8);
+                        || get(/databases/$(database)/documents/meta/stats).data.leaderCount < 9);
       allow update: if request.auth != null && request.auth.uid == leaderId;
       allow delete: if false;
     }
@@ -57,6 +57,31 @@ service cloud.firestore {
       allow read, update: if request.auth != null && request.auth.uid == resource.data.leaderId;
       allow create: if request.auth != null;
       allow delete: if false;
+    }
+
+    // ---- announcements/{announcementId} --------------------------------
+    // Public homepage feed of updates. Anyone (including signed-out
+    // visitors) can read announcements. Only a signed-in leader — i.e.
+    // one of the 9 accounts covered by the MAX_LEADER_ACCOUNTS cap above,
+    // since that's the only way to obtain a Firebase Auth session in this
+    // project — can create one, and only as themselves (authorId must
+    // match their own uid; they cannot post as someone else). A leader
+    // can only edit or delete their own announcements.
+    match /announcements/{announcementId} {
+      allow read: if true;
+      allow create: if request.auth != null
+                    && request.resource.data.authorId == request.auth.uid
+                    && request.resource.data.keys().hasAll(['authorId', 'authorName', 'title', 'body', 'createdAt'])
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() > 0
+                    && request.resource.data.title.size() <= 200
+                    && request.resource.data.body is string
+                    && request.resource.data.body.size() > 0
+                    && request.resource.data.body.size() <= 5000;
+      allow update: if request.auth != null
+                    && request.auth.uid == resource.data.authorId
+                    && request.resource.data.authorId == resource.data.authorId;
+      allow delete: if request.auth != null && request.auth.uid == resource.data.authorId;
     }
   }
 }
