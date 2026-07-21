@@ -15,6 +15,8 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  deleteDoc,
+  addDoc,
   collection,
   query,
   where,
@@ -146,6 +148,7 @@ onAuthStateChanged(auth, async (user) => {
   populateOverview();
   populateProfileForm();
   watchInbox();
+  watchMyAnnouncements();
 });
 
 document.getElementById("logout-btn")?.addEventListener("click", async () => {
@@ -359,6 +362,122 @@ async function openMessage(id, m) {
   const subject = encodeURIComponent(`Re: your message to ${currentLeader.name}`);
   const body = encodeURIComponent(`Hi ${m.fromName || ""},\n\n`);
   window.location.href = `mailto:${m.fromEmail}?subject=${subject}&body=${body}`;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Announcements — post to the public homepage feed                        */
+/* ---------------------------------------------------------------------- */
+document.getElementById("announcement-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const status = document.getElementById("announcement-status");
+  const btn = form.querySelector("button[type=submit]");
+  const data = new FormData(form);
+
+  btn.disabled = true;
+  btn.textContent = "Posting…";
+
+  try {
+    await addDoc(collection(db, "announcements"), {
+      title: (data.get("title") || "").trim(),
+      body: (data.get("body") || "").trim(),
+      pinned: data.get("pinned") === "on",
+      authorId: currentUser.uid,
+      authorName: currentLeader.name || "UB3 Leader",
+      authorPosition: currentLeader.position || "",
+      authorPhoto: currentLeader.photoURL || "",
+      createdAt: serverTimestamp(),
+    });
+    status.textContent = "Announcement posted — it's now live on the homepage.";
+    status.className = "form-status success";
+    form.reset();
+  } catch (err) {
+    status.textContent = "Couldn't post your announcement. Please try again.";
+    status.className = "form-status error";
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Post Announcement";
+  }
+});
+
+function watchMyAnnouncements() {
+  const list = document.getElementById("my-announcements-list");
+  if (!list) return;
+
+  const q = query(
+    collection(db, "announcements"),
+    where("authorId", "==", currentUser.uid),
+    orderBy("createdAt", "desc")
+  );
+
+  onSnapshot(
+    q,
+    (snap) => {
+      if (snap.empty) {
+        list.innerHTML = `<div class="empty-state">You haven't posted any announcements yet.</div>`;
+        return;
+      }
+
+      list.innerHTML = "";
+      snap.forEach((docSnap) => {
+        const a = docSnap.data();
+        const time = a.createdAt?.toDate ? a.createdAt.toDate().toLocaleString() : "";
+        const item = document.createElement("div");
+        item.className = "ann-item glass";
+        item.innerHTML = `
+          <div class="ann-item-top">
+            <span class="ann-item-title">${escapeHtml(a.title)}${a.pinned ? `<span class="ann-pin-tag">PINNED</span>` : ""}</span>
+            <span class="ann-item-time">${time}</span>
+          </div>
+          <div class="ann-item-body">${escapeHtml(a.body)}</div>
+          <div class="ann-item-actions">
+            <button type="button" class="ann-pin-btn" data-id="${docSnap.id}">${a.pinned ? "Unpin" : "Pin to top"}</button>
+            <button type="button" class="ann-delete-btn" data-id="${docSnap.id}">Delete</button>
+          </div>
+        `;
+        item.querySelector(".ann-pin-btn").addEventListener("click", async (btnEvent) => {
+          const btn = btnEvent.currentTarget;
+          btn.disabled = true;
+          try {
+            await updateDoc(doc(db, "announcements", docSnap.id), { pinned: !a.pinned });
+          } catch (err) {
+            console.error(err);
+            alert("Couldn't update this announcement. Please try again.");
+          } finally {
+            btn.disabled = false;
+          }
+        });
+        item.querySelector(".ann-delete-btn").addEventListener("click", async () => {
+          if (!confirm("Delete this announcement? This can't be undone.")) return;
+          try {
+            await deleteDoc(doc(db, "announcements", docSnap.id));
+          } catch (err) {
+            console.error(err);
+            alert("Couldn't delete this announcement. Please try again.");
+          }
+        });
+        list.appendChild(item);
+      });
+    },
+    (err) => {
+      const detail = err?.message || err?.code || "unknown error";
+      const urlMatch = detail.match(/https:\/\/console\.firebase\.google\.com\S+/);
+      const detailHtml = urlMatch
+        ? detail.slice(0, urlMatch.index) +
+          `<a href="${urlMatch[0]}" target="_blank" rel="noopener" style="color:#7dd3fc;text-decoration:underline;">Tap here to create the required index</a>` +
+          detail.slice(urlMatch.index + urlMatch[0].length)
+        : detail;
+      list.innerHTML = `<div class="empty-state">Couldn't load your announcements.<br><small style="opacity:.7;word-break:break-word;">(${detailHtml})</small></div>`;
+      console.error(err);
+    }
+  );
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str || "";
+  return div.innerHTML;
 }
 
 /* ---------------------------------------------------------------------- */
