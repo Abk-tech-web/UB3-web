@@ -43,6 +43,7 @@ async function loadLiveLeaders() {
       const live = byPosition.get(normalizePosition(slot.position));
       if (!live) return;
       slot.uid = live.uid;
+      slot.createdAt = live.createdAt || null;
       if (live.name) slot.name = live.name;
       if (live.photoURL) slot.photo = live.photoURL;
       if (live.bio) slot.bio = live.bio;
@@ -221,8 +222,108 @@ function verifiedBadge(leader) {
   const isOfficial = normalizePosition(leader.position) === normalizePosition("UNBOUND_DAO3");
   const fill = isOfficial ? "#f2b90c" : "#1d9bf0";
   const label = isOfficial ? "Official UB3 account" : "Verified leader account";
-  return `<svg class="verified-badge" viewBox="0 0 22 22" aria-label="${label}" role="img"><title>${label}</title><path fill="${fill}" d="M20.396 11c-.018-.646-.215-1.275-.57-1.816a3.4 3.4 0 0 0-1.5-1.3 3.6 3.6 0 0 0-.428-1.921 3.5 3.5 0 0 0-1.483-1.47 3.4 3.4 0 0 0-1.916-.435 3.6 3.6 0 0 0-1.279-1.482 3.5 3.5 0 0 0-1.94-.588c-.696 0-1.372.203-1.94.588a3.6 3.6 0 0 0-1.279 1.482 3.4 3.4 0 0 0-1.916.435 3.5 3.5 0 0 0-1.483 1.47 3.6 3.6 0 0 0-.428 1.921 3.4 3.4 0 0 0-1.5 1.3A3.6 3.6 0 0 0 1.164 11c.018.646.215 1.275.57 1.816a3.4 3.4 0 0 0 1.5 1.3 3.6 3.6 0 0 0 .428 1.921 3.5 3.5 0 0 0 1.483 1.47 3.4 3.4 0 0 0 1.916.435 3.6 3.6 0 0 0 1.279 1.482 3.5 3.5 0 0 0 1.94.588c.696 0 1.372-.203 1.94-.588a3.6 3.6 0 0 0 1.279-1.482 3.4 3.4 0 0 0 1.916-.435 3.5 3.5 0 0 0 1.483-1.47 3.6 3.6 0 0 0 .428-1.921 3.4 3.4 0 0 0 1.5-1.3c.355-.541.552-1.17.57-1.816Z"/><path fill="#fff" d="m9.653 14.487-3.28-3.28 1.084-1.084 2.196 2.196 4.688-4.688 1.084 1.084z"/></svg>`;
+  const createdIso = leader.createdAt?.toDate ? leader.createdAt.toDate().toISOString() : "";
+  return `<button type="button" class="badge-btn" data-badge-kind="verified" data-official="${isOfficial ? "1" : ""}" data-created="${createdIso}" aria-label="${label}"><svg class="verified-badge" viewBox="0 0 22 22" aria-hidden="true"><path fill="${fill}" d="M20.396 11c-.018-.646-.215-1.275-.57-1.816a3.4 3.4 0 0 0-1.5-1.3 3.6 3.6 0 0 0-.428-1.921 3.5 3.5 0 0 0-1.483-1.47 3.4 3.4 0 0 0-1.916-.435 3.6 3.6 0 0 0-1.279-1.482 3.5 3.5 0 0 0-1.94-.588c-.696 0-1.372.203-1.94.588a3.6 3.6 0 0 0-1.279 1.482 3.4 3.4 0 0 0-1.916.435 3.5 3.5 0 0 0-1.483 1.47 3.6 3.6 0 0 0-.428 1.921 3.4 3.4 0 0 0-1.5 1.3A3.6 3.6 0 0 0 1.164 11c.018.646.215 1.275.57 1.816a3.4 3.4 0 0 0 1.5 1.3 3.6 3.6 0 0 0 .428 1.921 3.5 3.5 0 0 0 1.483 1.47 3.4 3.4 0 0 0 1.916.435 3.6 3.6 0 0 0 1.279 1.482 3.5 3.5 0 0 0 1.94.588c.696 0 1.372-.203 1.94-.588a3.6 3.6 0 0 0 1.279-1.482 3.4 3.4 0 0 0 1.916-.435 3.5 3.5 0 0 0 1.483-1.47 3.6 3.6 0 0 0 .428-1.921 3.4 3.4 0 0 0 1.5-1.3c.355-.541.552-1.17.57-1.816Z"/><path fill="#fff" d="m9.653 14.487-3.28-3.28 1.084-1.084 2.196 2.196 4.688-4.688 1.084 1.084z"/></svg></button>`;
 }
+
+// A small "affiliated with UB3" badge (mirrors X's little org-logo badge
+// shown next to affiliated accounts, e.g. next to @elonmusk's name it
+// shows a small X logo). Shown for the 8 regular leader slots once
+// claimed — not for the official UNBOUND_DAO3 account itself, since an
+// org doesn't affiliate with itself.
+function affiliateBadge(leader) {
+  if (!leader.uid) return "";
+  const isOfficial = normalizePosition(leader.position) === normalizePosition("UNBOUND_DAO3");
+  if (isOfficial) return "";
+  return `<button type="button" class="badge-btn affiliate-badge" data-badge-kind="affiliate" aria-label="Affiliated with UB3"><img src="assets/logo-nav.png" alt="UB3"></button>`;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Badge info popovers                                                     */
+/* Tapping a verified or affiliate badge explains what it means, matching  */
+/* the little info sheet X shows when you tap its own badges.              */
+/* ---------------------------------------------------------------------- */
+let badgeInfoOverlay = null;
+
+function ensureBadgeInfoOverlay() {
+  if (badgeInfoOverlay) return badgeInfoOverlay;
+  badgeInfoOverlay = document.createElement("div");
+  badgeInfoOverlay.className = "badge-info-overlay";
+  badgeInfoOverlay.innerHTML = `
+    <div class="badge-info-card" role="dialog" aria-modal="true">
+      <button type="button" class="badge-info-close" aria-label="Close">${ICONS.close}</button>
+      <div class="badge-info-row">
+        <span class="badge-info-icon"></span>
+        <p class="badge-info-text"></p>
+      </div>
+      <div class="badge-info-row badge-info-date" hidden>
+        <span class="badge-info-icon badge-info-calendar">📅</span>
+        <p class="badge-info-text badge-info-date-text"></p>
+      </div>
+    </div>`;
+  document.body.appendChild(badgeInfoOverlay);
+  badgeInfoOverlay.addEventListener("click", (e) => {
+    if (e.target === badgeInfoOverlay) closeBadgeInfo();
+  });
+  badgeInfoOverlay.querySelector(".badge-info-close").addEventListener("click", closeBadgeInfo);
+  return badgeInfoOverlay;
+}
+
+function closeBadgeInfo() {
+  badgeInfoOverlay?.classList.remove("open");
+}
+
+function showBadgeInfo({ iconHtml, text, sinceText }) {
+  const el = ensureBadgeInfoOverlay();
+  el.querySelector(".badge-info-icon").innerHTML = iconHtml;
+  el.querySelector(".badge-info-text").textContent = text;
+  const dateRow = el.querySelector(".badge-info-date");
+  if (sinceText) {
+    dateRow.hidden = false;
+    el.querySelector(".badge-info-date-text").textContent = sinceText;
+  } else {
+    dateRow.hidden = true;
+  }
+  el.classList.add("open");
+}
+
+const VERIFIED_ICON_BLUE = `<svg viewBox="0 0 22 22" aria-hidden="true"><path fill="#1d9bf0" d="M20.396 11c-.018-.646-.215-1.275-.57-1.816a3.4 3.4 0 0 0-1.5-1.3 3.6 3.6 0 0 0-.428-1.921 3.5 3.5 0 0 0-1.483-1.47 3.4 3.4 0 0 0-1.916-.435 3.6 3.6 0 0 0-1.279-1.482 3.5 3.5 0 0 0-1.94-.588c-.696 0-1.372.203-1.94.588a3.6 3.6 0 0 0-1.279 1.482 3.4 3.4 0 0 0-1.916.435 3.5 3.5 0 0 0-1.483 1.47 3.6 3.6 0 0 0-.428 1.921 3.4 3.4 0 0 0-1.5 1.3A3.6 3.6 0 0 0 1.164 11c.018.646.215 1.275.57 1.816a3.4 3.4 0 0 0 1.5 1.3 3.6 3.6 0 0 0 .428 1.921 3.5 3.5 0 0 0 1.483 1.47 3.4 3.4 0 0 0 1.916.435 3.6 3.6 0 0 0 1.279 1.482 3.5 3.5 0 0 0 1.94.588c.696 0 1.372-.203 1.94-.588a3.6 3.6 0 0 0 1.279-1.482 3.4 3.4 0 0 0 1.916-.435 3.5 3.5 0 0 0 1.483-1.47 3.6 3.6 0 0 0 .428-1.921 3.4 3.4 0 0 0 1.5-1.3c.355-.541.552-1.17.57-1.816Z"/><path fill="#fff" d="m9.653 14.487-3.28-3.28 1.084-1.084 2.196 2.196 4.688-4.688 1.084 1.084z"/></svg>`;
+const VERIFIED_ICON_GOLD = VERIFIED_ICON_BLUE.replace("#1d9bf0", "#f2b90c");
+
+function formatVerifiedSince(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `Verified since ${d.toLocaleDateString(undefined, { month: "long", year: "numeric" })}.`;
+}
+
+document.addEventListener("click", (e) => {
+  const badgeBtn = e.target.closest("[data-badge-kind]");
+  if (!badgeBtn) return;
+  e.preventDefault();
+  e.stopPropagation();
+
+  if (badgeBtn.dataset.badgeKind === "verified") {
+    const isOfficial = badgeBtn.dataset.official === "1";
+    if (isOfficial) {
+      showBadgeInfo({
+        iconHtml: VERIFIED_ICON_GOLD,
+        text: "This account is verified because it's an official organisation on UB3.",
+        sinceText: formatVerifiedSince(badgeBtn.dataset.created),
+      });
+    } else {
+      showBadgeInfo({
+        iconHtml: VERIFIED_ICON_BLUE,
+        text: "This account is verified because it's an affiliate with UB3.",
+      });
+    }
+  } else if (badgeBtn.dataset.badgeKind === "affiliate") {
+    showBadgeInfo({
+      iconHtml: `<img src="assets/logo-nav.png" alt="UB3" style="width:100%;height:100%;object-fit:contain;">`,
+      text: "This account is affiliated with UB3.",
+    });
+  }
+});
 
 function socialLinks(leader) {
   const items = [];
@@ -243,7 +344,7 @@ async function renderLeadersGrid() {
         ${l.photo ? `<img src="${l.photo}" alt="${l.name}" loading="lazy">` : initials(l.name)}
       </div>
       <div class="leader-body">
-        <h3>${l.name}${verifiedBadge(l)}</h3>
+        <h3>${l.name}${verifiedBadge(l)}${affiliateBadge(l)}</h3>
         <div class="l-role">${l.position}</div>
         <div class="l-dept">${l.department}</div>
         <p class="l-bio">${l.bio}</p>
@@ -277,7 +378,7 @@ function openLeaderModal(id) {
     <div class="modal-head">
       <div class="leader-photo">${leader.photo ? `<img src="${leader.photo}" alt="${leader.name}">` : initials(leader.name)}</div>
       <div>
-        <h3>${leader.name}${verifiedBadge(leader)}</h3>
+        <h3>${leader.name}${verifiedBadge(leader)}${affiliateBadge(leader)}</h3>
         <div class="l-role">${leader.position}</div>
         <div class="l-dept">${leader.department}</div>
       </div>
