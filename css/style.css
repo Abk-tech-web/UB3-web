@@ -355,9 +355,9 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
 .leader-photo img { width: 100%; height: 100%; object-fit: cover; }
 .leader-body { padding: 20px 20px 22px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
 .leader-body h3 { font-size: 16.5px; }
-.verified-badge { width: 1.25em; height: 1.25em; flex-shrink: 0; display: block; }
-.badge-btn { background: none; border: none; padding: 0; margin: 0; cursor: pointer; display: inline-flex; align-items: center; vertical-align: -0.22em; margin-left: 6px; }
-.affiliate-badge { width: 1.25em; height: 1.25em; border-radius: 5px; background: #000; border: 1px solid rgba(255,255,255,0.25); overflow: hidden; margin-left: 4px; }
+.verified-badge { width: 1.8em; height: 1.8em; flex-shrink: 0; display: block; }
+.badge-btn { background: none; border: none; padding: 0; margin: 0; cursor: pointer; display: inline-flex; align-items: center; vertical-align: -0.32em; margin-left: 8px; }
+.affiliate-badge { width: 1.8em; height: 1.8em; border-radius: 6px; background: #000; border: 1px solid rgba(255,255,255,0.25); overflow: hidden; margin-left: 6px; }
 .affiliate-badge img { width: 100%; height: 100%; object-fit: contain; padding: 1.5px; }
 
 /* Badge info popover (tap a verified/affiliate badge) */
