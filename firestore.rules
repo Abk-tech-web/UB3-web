@@ -41,14 +41,16 @@ service cloud.firestore {
 
     // ---- messages/{messageId} -----------------------------------------
     // Visitors (unauthenticated) can create a message for a leader or the
-    // general inbox. Only the addressed leader can read or update
-    // (mark as read) their own messages. Nobody can delete via the client.
+    // general inbox. A leader can read/mark-as-read messages addressed to
+    // them personally, AND any message in the shared "general" inbox
+    // (visible to all 9 leaders). Nobody can delete via the client.
     match /messages/{messageId} {
       allow create: if request.resource.data.keys().hasAll(['toLeaderId', 'fromName', 'fromEmail', 'body'])
                     && request.resource.data.fromName is string
                     && request.resource.data.fromEmail is string
                     && request.resource.data.body is string;
-      allow read, update: if request.auth != null && request.auth.uid == resource.data.toLeaderId;
+      allow read, update: if request.auth != null
+                    && (request.auth.uid == resource.data.toLeaderId || resource.data.toLeaderId == "general");
       allow delete: if false;
     }
 
