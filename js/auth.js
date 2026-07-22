@@ -36,7 +36,29 @@ document.querySelectorAll("[data-toggle-password]").forEach((btn) => {
   });
 });
 
-const LIMIT_MESSAGE = `Account creation is limited to UB3's ${MAX_LEADER_ACCOUNTS} leaders. All ${MAX_LEADER_ACCOUNTS} spots have been filled — contact the Head of Technology if this is a mistake.`;
+const LIMIT_MESSAGE = `Only ${MAX_LEADER_ACCOUNTS} UB3 leaders are allowed to create an account. All ${MAX_LEADER_ACCOUNTS} spots have been filled — contact the Head of Technology if this is a mistake.`;
+
+/* ---------------------------------------------------------------------- */
+/* If signups are already at capacity, don't even show the form            */
+/* ---------------------------------------------------------------------- */
+(async () => {
+  const createForm = document.getElementById("create-form");
+  const fullNotice = document.getElementById("create-full-notice");
+  if (!createForm || !fullNotice) return;
+
+  try {
+    const statsSnap = await getDoc(doc(db, "meta", "stats"));
+    const currentCount = statsSnap.exists() ? (statsSnap.data().leaderCount || 0) : 0;
+    if (currentCount >= MAX_LEADER_ACCOUNTS) {
+      createForm.style.display = "none";
+      fullNotice.textContent = LIMIT_MESSAGE;
+      fullNotice.style.display = "block";
+    }
+  } catch (err) {
+    // If this check fails, leave the form visible — the transaction in the
+    // submit handler below is the real, authoritative gate regardless.
+  }
+})();
 
 /* ---------------------------------------------------------------------- */
 /* Tabs                                                                    */
