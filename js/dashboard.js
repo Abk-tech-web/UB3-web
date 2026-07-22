@@ -296,7 +296,7 @@ document.getElementById("profile-form")?.addEventListener("submit", async (e) =>
 function watchInbox() {
   const q = query(
     collection(db, "messages"),
-    where("toLeaderId", "==", currentUser.uid),
+    where("toLeaderId", "in", [currentUser.uid, "general"]),
     orderBy("createdAt", "desc")
   );
 
@@ -320,7 +320,7 @@ function watchInbox() {
         item.className = `msg-item glass ${m.read ? "" : "unread"}`;
         item.innerHTML = `
           <div class="msg-top">
-            <span class="msg-from">${m.fromName || "Anonymous"} · ${m.fromEmail || ""}</span>
+            <span class="msg-from">${m.fromName || "Anonymous"} · ${m.fromEmail || ""}${m.toLeaderId === "general" ? ` <span class="ann-pin-tag">GENERAL</span>` : ""}</span>
             <span class="msg-time">${time}</span>
           </div>
           <div class="msg-preview">${(m.body || "").slice(0, 140)}</div>
