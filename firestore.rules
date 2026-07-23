@@ -81,11 +81,14 @@ service cloud.firestore {
       let oldComment = ('commentCount' in resource.data) ? resource.data.commentCount : 0;
       return (diffKeys.hasOnly(['likeCount'])
               && request.resource.data.likeCount is int
+              && request.resource.data.likeCount >= 0
               && (request.resource.data.likeCount == oldLike + 1
                   || request.resource.data.likeCount == oldLike - 1))
           || (diffKeys.hasOnly(['commentCount'])
               && request.resource.data.commentCount is int
-              && request.resource.data.commentCount == oldComment + 1);
+              && request.resource.data.commentCount >= 0
+              && (request.resource.data.commentCount == oldComment + 1
+                  || request.resource.data.commentCount == oldComment - 1));
     }
 
     match /announcements/{announcementId} {
@@ -118,18 +121,34 @@ service cloud.firestore {
       }
 
       // ---- announcements/{announcementId}/comments/{commentId} ---------
-      // Public comments. Anyone can post a name + message; nothing can be
-      // edited or deleted once posted via the client.
+      // Public comments. Every commenter — including visitors who never
+      // create an account — is signed in anonymously by the client
+      // (js/main.js calls signInAnonymously), so `uid` is a real,
+      // unspoofable Firebase Auth id, not just a self-reported field. That
+      // lets us safely allow a commenter to edit or delete ONLY their own
+      // comment later, without requiring a real account.
+      // Requires the "Anonymous" sign-in provider to be enabled in
+      // Firebase Console > Authentication > Sign-in method.
       match /comments/{commentId} {
         allow read: if true;
-        allow create: if request.resource.data.keys().hasAll(['name', 'body', 'createdAt'])
+        allow create: if request.auth != null
+                      && request.resource.data.uid == request.auth.uid
+                      && request.resource.data.keys().hasAll(['uid', 'name', 'body', 'createdAt'])
                       && request.resource.data.name is string
                       && request.resource.data.name.size() > 0
                       && request.resource.data.name.size() <= 80
                       && request.resource.data.body is string
                       && request.resource.data.body.size() > 0
                       && request.resource.data.body.size() <= 1000;
-        allow update, delete: if false;
+        allow update: if request.auth != null
+                      && request.auth.uid == resource.data.uid
+                      && request.resource.data.uid == resource.data.uid
+                      && request.resource.data.name == resource.data.name
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body', 'editedAt'])
+                      && request.resource.data.body is string
+                      && request.resource.data.body.size() > 0
+                      && request.resource.data.body.size() <= 1000;
+        allow delete: if request.auth != null && request.auth.uid == resource.data.uid;
       }
     }
   }
