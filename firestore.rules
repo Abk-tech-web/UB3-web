@@ -110,13 +110,15 @@ service cloud.firestore {
 
       // ---- announcements/{announcementId}/likes/{deviceId} -------------
       // One doc per visitor device (id generated client-side and stored in
-      // localStorage). Anyone can create their own like or remove it again
-      // (unlike) — there's no login for visitors, so this is a lightweight,
-      // trust-based cap of one like per browser, not a hard guarantee.
+      // localStorage). Anyone can create OR overwrite their own like doc —
+      // write (not just create) matters here because if a like doc already
+      // exists for that device (e.g. left over from earlier testing),
+      // Firestore treats re-liking as an "update" rather than a "create";
+      // only allowing create would silently reject that and make the like
+      // never actually land, even though the UI showed it succeeding.
       match /likes/{likeId} {
         allow read: if true;
-        allow create: if request.resource.data.keys().hasOnly(['createdAt']);
-        allow update: if false;
+        allow write: if request.resource.data.keys().hasOnly(['createdAt']);
         allow delete: if true;
       }
 
