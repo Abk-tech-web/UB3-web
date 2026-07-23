@@ -576,6 +576,20 @@ function announcementAvatar(a) {
     : initials(a.authorName || "UB3");
 }
 
+// Every post author is guaranteed to be one of the 9 leader accounts (only
+// they can create announcements — enforced in firestore.rules). LEADERS[0]
+// is the UB3 Official Account slot; loadLiveLeaders() overlays its real
+// Firebase uid onto LEADERS[0].uid once the live roster loads. Anyone
+// posting with that exact uid gets the Verified badge; the other 8 leaders
+// get the Affiliate badge.
+function authorBadgeHtml(a) {
+  const officialUid = LEADERS[0]?.uid;
+  const isOfficial = !!officialUid && a.authorId === officialUid;
+  return isOfficial
+    ? `<span class="author-badge badge-verified" title="Verified — UB3 Official Account">${ICONS.badge}</span>`
+    : `<span class="author-badge badge-affiliate" title="Affiliate — UB3 Leadership">${ICONS.badge}</span>`;
+}
+
 function timeAgo(date) {
   if (!date) return "";
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -624,6 +638,7 @@ function saveLikedPosts(set) {
 const openCommentThreads = new Set();
 
 if (announcementsList) {
+  await liveLeadersReady.catch(() => {});
   const annQuery = query(
     collection(db, "announcements"),
     orderBy("pinned", "desc"),
@@ -662,6 +677,7 @@ if (announcementsList) {
                   <div class="announcement-who">
                     <div class="announcement-name-row">
                       <span class="announcement-name">${escapeHtml(a.authorName || "UB3")}</span>
+                      ${authorBadgeHtml(a)}
                       ${a.authorPosition ? `<span class="announcement-role-badge">${escapeHtml(a.authorPosition)}</span>` : ""}
                     </div>
                     <div class="announcement-meta">Posted in Announcements<span class="dot">&middot;</span>${time}</div>

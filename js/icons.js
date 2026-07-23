@@ -22,4 +22,5 @@ export const ICONS = {
   heartFilled: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20.4S3.5 15.3 3.5 9.2A4.9 4.9 0 0 1 12 6.1a4.9 4.9 0 0 1 8.5 3.1c0 6.1-8.5 11.2-8.5 11.2z"/></svg>`,
   comment: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4.5h16v11.5H9l-4.5 4V4.5z"/></svg>`,
   send: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 12l17.5-8-6 8 6 8L3 12zm2.9 0l10.2 0 3-4-13.2 4zm0 0l13.2 4-3-4-10.2 0z"/></svg>`,
+  badge: `<svg viewBox="0 0 22 22" fill="currentColor"><circle cx="11" cy="11" r="11"/><path d="M6.6 11.3l2.8 2.8 6-6.6" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 };
