@@ -6,7 +6,7 @@
 // (writes to Firestore `messages` collection).
 // ============================================================================
 
-import { db } from "./firebase.js";
+import { db, auth } from "./firebase.js";
 import {
   collection,
   addDoc,
@@ -22,6 +22,10 @@ import {
   updateDoc,
   increment,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {
+  signInAnonymously,
+  onAuthStateChanged,
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { LEADERS, initials } from "./leaders-data.js";
 import { ICONS } from "./icons.js";
 
@@ -535,6 +539,29 @@ const yearEl = document.getElementById("year");
 if (yearEl) yearEl.textContent = new Date().getFullYear();
 
 /* ---------------------------------------------------------------------- */
+/* Visitor identity for comments (anonymous Firebase Auth)                 */
+/* Every visitor — including ones who never log in — gets a lightweight    */
+/* anonymous auth session. This gives each comment a real, unspoofable     */
+/* owner (auth.uid) so we can safely let people edit/delete their own      */
+/* comments later, without requiring an account. Requires the "Anonymous"  */
+/* sign-in provider to be enabled in Firebase Console > Authentication.    */
+/* ---------------------------------------------------------------------- */
+let visitorUid = null;
+const authReady = new Promise((resolve) => {
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      visitorUid = user.uid;
+      resolve(user.uid);
+    } else {
+      signInAnonymously(auth).catch((err) => {
+        console.error("Anonymous sign-in failed (enable it in Firebase Console > Authentication > Sign-in method):", err);
+        resolve(null);
+      });
+    }
+  });
+});
+
+/* ---------------------------------------------------------------------- */
 /* Announcements feed (public — reads the `announcements` collection)      */
 /* Any of the 9 leader accounts (8 leads + the UB3 Official Account) can   */
 /* publish a post from their dashboard; this renders them live on the      */
@@ -621,8 +648,8 @@ if (announcementsList) {
           const a = docSnap.data();
           const time = a.createdAt?.toDate ? timeAgo(a.createdAt.toDate()) : "";
           const liked = likedPosts.has(id);
-          const likeCount = a.likeCount || 0;
-          const commentCount = a.commentCount || 0;
+          const likeCount = Math.max(0, a.likeCount || 0);
+          const commentCount = Math.max(0, a.commentCount || 0);
           const bodyText = a.body || "";
           const needsTruncate = bodyText.length > BODY_PREVIEW_LEN;
           const commentsOpen = openCommentThreads.has(id);
@@ -711,7 +738,9 @@ if (announcementsList) {
   /* -- like / unlike ----------------------------------------------------- */
   announcementsList.addEventListener("click", async (e) => {
     const btn = e.target.closest(".js-like-btn");
-    if (!btn) return;
+    if (!btn || btn.dataset.busy === "1") return;
+    btn.dataset.busy = "1";
+
     const id = btn.dataset.annId;
     const likedPosts = getLikedPosts();
     const alreadyLiked = likedPosts.has(id);
@@ -738,6 +767,8 @@ if (announcementsList) {
     } catch (err) {
       console.error("Like failed:", err);
       // Re-sync will happen on the next onSnapshot fire regardless.
+    } finally {
+      btn.dataset.busy = "";
     }
   });
 
@@ -773,7 +804,10 @@ if (announcementsList) {
 
     submitBtn.disabled = true;
     try {
+      const uid = visitorUid || (await authReady);
+      if (!uid) throw new Error("Not signed in — comment ownership couldn't be established.");
       await addDoc(collection(db, "announcements", id, "comments"), {
+        uid,
         name: nameVal,
         body: bodyVal,
         createdAt: serverTimestamp(),
@@ -790,6 +824,72 @@ if (announcementsList) {
       submitBtn.disabled = false;
     }
   });
+
+  /* -- edit / delete / save / cancel a comment (event delegation) ------ */
+  announcementsList.addEventListener("click", async (e) => {
+    const editBtn = e.target.closest(".js-comment-edit");
+    const deleteBtn = e.target.closest(".js-comment-delete");
+    const cancelBtn = e.target.closest(".js-comment-cancel");
+    const saveBtn = e.target.closest(".js-comment-save");
+
+    if (editBtn) {
+      const item = editBtn.closest(".comment-item");
+      item?.classList.add("editing");
+      const textarea = item?.querySelector(".js-comment-edit-input");
+      textarea?.focus();
+      return;
+    }
+
+    if (cancelBtn) {
+      cancelBtn.closest(".comment-item")?.classList.remove("editing");
+      return;
+    }
+
+    if (saveBtn) {
+      if (saveBtn.dataset.busy === "1") return;
+      const item = saveBtn.closest(".comment-item");
+      const annId = item.dataset.annId;
+      const commentId = item.dataset.commentId;
+      const textarea = item.querySelector(".js-comment-edit-input");
+      const newBody = (textarea?.value || "").trim();
+      if (!newBody) return;
+      saveBtn.dataset.busy = "1";
+      saveBtn.disabled = true;
+      try {
+        await updateDoc(doc(db, "announcements", annId, "comments", commentId), {
+          body: newBody,
+          editedAt: serverTimestamp(),
+        });
+        loadComments(annId);
+      } catch (err) {
+        console.error("Comment edit failed:", err);
+        alert("Couldn't save your changes. Please try again.");
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.dataset.busy = "";
+      }
+      return;
+    }
+
+    if (deleteBtn) {
+      if (deleteBtn.dataset.busy === "1") return;
+      const item = deleteBtn.closest(".comment-item");
+      const annId = item.dataset.annId;
+      const commentId = item.dataset.commentId;
+      if (!confirm("Delete this comment? This can't be undone.")) return;
+      deleteBtn.dataset.busy = "1";
+      try {
+        await deleteDoc(doc(db, "announcements", annId, "comments", commentId));
+        await updateDoc(doc(db, "announcements", annId), { commentCount: increment(-1) });
+        loadComments(annId);
+      } catch (err) {
+        console.error("Comment delete failed:", err);
+        alert("Couldn't delete this comment. Please try again.");
+        deleteBtn.dataset.busy = "";
+      }
+      return;
+    }
+  });
 }
 
 /* -- fetch + render a post's comment list (one-time read, refreshed on   */
@@ -799,6 +899,7 @@ async function loadComments(annId) {
   if (!list) return;
   list.innerHTML = `<div class="comment-empty">Loading comments…</div>`;
   try {
+    const ownUid = visitorUid || (await authReady);
     const q = query(collection(db, "announcements", annId, "comments"), orderBy("createdAt", "asc"), limit(100));
     const snap = await getDocs(q);
     if (snap.empty) {
@@ -809,13 +910,24 @@ async function loadComments(annId) {
       .map((d) => {
         const c = d.data();
         const time = c.createdAt?.toDate ? timeAgo(c.createdAt.toDate()) : "";
+        const isOwner = ownUid && c.uid && c.uid === ownUid;
         return `
-          <div class="comment-item">
+          <div class="comment-item" data-ann-id="${annId}" data-comment-id="${d.id}">
             <div class="comment-avatar">${initials(c.name || "?")}</div>
             <div class="comment-body-wrap">
               <div class="comment-name">${escapeHtml(c.name || "Visitor")}</div>
-              <div class="comment-text">${escapeHtml(c.body || "")}</div>
-              <div class="comment-time">${time}</div>
+              <div class="comment-text js-comment-text">${escapeHtml(c.body || "")}</div>
+              <textarea class="js-comment-edit-input" maxlength="1000">${escapeHtml(c.body || "")}</textarea>
+              <div class="comment-time">${time}${c.editedAt ? " · edited" : ""}</div>
+              ${isOwner ? `
+                <div class="comment-owner-actions">
+                  <button type="button" class="comment-mini-btn js-comment-edit">Edit</button>
+                  <button type="button" class="comment-mini-btn js-comment-delete">Delete</button>
+                </div>
+                <div class="comment-edit-actions">
+                  <button type="button" class="comment-mini-btn js-comment-cancel">Cancel</button>
+                  <button type="button" class="comment-mini-btn primary js-comment-save">Save</button>
+                </div>` : ""}
             </div>
           </div>`;
       })
