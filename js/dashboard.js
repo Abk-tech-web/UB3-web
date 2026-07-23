@@ -387,6 +387,8 @@ document.getElementById("announcement-form")?.addEventListener("submit", async (
       authorPosition: currentLeader.position || "",
       authorPhoto: currentLeader.photoURL || "",
       createdAt: serverTimestamp(),
+      likeCount: 0,
+      commentCount: 0,
     });
     status.textContent = "Announcement posted — it's now live on the homepage.";
     status.className = "form-status success";

@@ -16,6 +16,11 @@ import {
   orderBy,
   limit,
   onSnapshot,
+  doc,
+  setDoc,
+  deleteDoc,
+  updateDoc,
+  increment,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { LEADERS, initials } from "./leaders-data.js";
 import { ICONS } from "./icons.js";
@@ -531,8 +536,10 @@ if (yearEl) yearEl.textContent = new Date().getFullYear();
 
 /* ---------------------------------------------------------------------- */
 /* Announcements feed (public — reads the `announcements` collection)      */
-/* Any of the 9 leader accounts can publish a post from their dashboard;   */
-/* this renders them live on the homepage, pinned posts first.             */
+/* Any of the 9 leader accounts (8 leads + the UB3 Official Account) can   */
+/* publish a post from their dashboard; this renders them live on the      */
+/* homepage, pinned posts first. Signed-out visitors can like and comment  */
+/* on any post — no login required.                                       */
 /* ---------------------------------------------------------------------- */
 const announcementsList = document.getElementById("announcements-list");
 
@@ -562,6 +569,33 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+/* -- anonymous visitor identity (device-scoped, no login) ---------------- */
+function getDeviceId() {
+  let id = localStorage.getItem("ub3_device_id");
+  if (!id) {
+    id = "dev_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem("ub3_device_id", id);
+  }
+  return id;
+}
+
+function getLikedPosts() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem("ub3_liked_posts") || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveLikedPosts(set) {
+  localStorage.setItem("ub3_liked_posts", JSON.stringify([...set]));
+}
+
+// Announcement ids whose comment thread is currently expanded — preserved
+// across re-renders so a visitor doesn't lose their open thread every time
+// someone else likes/comments elsewhere in the feed.
+const openCommentThreads = new Set();
+
 if (announcementsList) {
   const annQuery = query(
     collection(db, "announcements"),
@@ -578,32 +612,79 @@ if (announcementsList) {
         return;
       }
 
+      const likedPosts = getLikedPosts();
+      const BODY_PREVIEW_LEN = 340;
+
       announcementsList.innerHTML = snap.docs
         .map((docSnap, idx) => {
+          const id = docSnap.id;
           const a = docSnap.data();
           const time = a.createdAt?.toDate ? timeAgo(a.createdAt.toDate()) : "";
+          const liked = likedPosts.has(id);
+          const likeCount = a.likeCount || 0;
+          const commentCount = a.commentCount || 0;
+          const bodyText = a.body || "";
+          const needsTruncate = bodyText.length > BODY_PREVIEW_LEN;
+          const commentsOpen = openCommentThreads.has(id);
+
           return `
-            <article class="announcement-card glass reveal${a.pinned ? " pinned" : ""}" style="transition-delay:${Math.min(idx, 6) * 0.04}s">
+            <article class="announcement-card glass reveal${a.pinned ? " pinned" : ""}" data-ann-id="${id}" style="transition-delay:${Math.min(idx, 6) * 0.04}s">
               <div class="announcement-top">
                 <div class="announcement-author">
                   <div class="announcement-avatar">${announcementAvatar(a)}</div>
                   <div class="announcement-who">
-                    <div class="announcement-name">${escapeHtml(a.authorName || "UB3")}</div>
-                    <div class="announcement-role">${escapeHtml(a.authorPosition || "")}</div>
+                    <div class="announcement-name-row">
+                      <span class="announcement-name">${escapeHtml(a.authorName || "UB3")}</span>
+                      ${a.authorPosition ? `<span class="announcement-role-badge">${escapeHtml(a.authorPosition)}</span>` : ""}
+                    </div>
+                    <div class="announcement-meta">Posted in Announcements<span class="dot">&middot;</span>${time}</div>
                   </div>
                 </div>
-                <div style="display:flex; align-items:center; gap:10px;">
-                  ${a.pinned ? `<span class="announcement-pin-badge">${ICONS.pin}Pinned</span>` : ""}
-                  <span class="announcement-time">${time}</span>
-                </div>
+                ${a.pinned ? `<span class="announcement-pin-badge">${ICONS.pin}Pinned</span>` : ""}
               </div>
               <h3 class="announcement-title">${escapeHtml(a.title)}</h3>
-              <p class="announcement-body">${escapeHtml(a.body)}</p>
+              <p class="announcement-body${needsTruncate ? " clamped js-ann-body" : ""}">${escapeHtml(bodyText)}</p>
+              ${needsTruncate ? `<button type="button" class="announcement-see-more js-see-more">See more</button>` : ""}
+
+              <div class="announcement-actions">
+                <button type="button" class="announcement-action-btn js-like-btn${liked ? " liked" : ""}" data-ann-id="${id}">
+                  ${liked ? ICONS.heartFilled : ICONS.heart}
+                  <span class="js-like-count">${likeCount}</span> <span>${likeCount === 1 ? "like" : "likes"}</span>
+                </button>
+                <button type="button" class="announcement-action-btn js-comment-toggle${commentsOpen ? " comments-open" : ""}" data-ann-id="${id}">
+                  ${ICONS.comment}
+                  <span class="js-comment-count">${commentCount}</span> <span>${commentCount === 1 ? "comment" : "comments"}</span>
+                </button>
+              </div>
+
+              <div class="announcement-comments${commentsOpen ? " open" : ""}" data-ann-id="${id}">
+                <form class="comment-form js-comment-form" data-ann-id="${id}">
+                  <div class="comment-form-row">
+                    <input type="text" name="name" placeholder="Your name" maxlength="80" required>
+                  </div>
+                  <textarea name="body" rows="2" maxlength="1000" placeholder="Write a comment…" required></textarea>
+                  <button type="submit" class="comment-form-submit">${ICONS.send} Post</button>
+                  <p class="comment-form-status"></p>
+                </form>
+                <div class="comment-list js-comment-list"><div class="comment-empty">Loading comments…</div></div>
+              </div>
             </article>`;
         })
         .join("");
 
       announcementsList.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+
+      // Prefill remembered commenter name
+      const savedName = localStorage.getItem("ub3_commenter_name") || "";
+      if (savedName) {
+        announcementsList.querySelectorAll('.comment-form input[name="name"]').forEach((inp) => {
+          inp.value = savedName;
+        });
+      }
+
+      // Restore any open comment threads (re-fetch their comments since the
+      // whole list HTML was just replaced by this snapshot).
+      openCommentThreads.forEach((id) => loadComments(id));
     },
     (err) => {
       const detail = err?.message || err?.code || "unknown error";
@@ -617,4 +698,130 @@ if (announcementsList) {
       console.error("Announcements feed error:", err);
     }
   );
+
+  /* -- see more / see less -------------------------------------------- */
+  announcementsList.addEventListener("click", (e) => {
+    const btn = e.target.closest(".js-see-more");
+    if (!btn) return;
+    const body = btn.previousElementSibling;
+    const expanded = body.classList.toggle("clamped") === false;
+    btn.textContent = expanded ? "See less" : "See more";
+  });
+
+  /* -- like / unlike ----------------------------------------------------- */
+  announcementsList.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".js-like-btn");
+    if (!btn) return;
+    const id = btn.dataset.annId;
+    const likedPosts = getLikedPosts();
+    const alreadyLiked = likedPosts.has(id);
+    const annRef = doc(db, "announcements", id);
+    const likeRef = doc(db, "announcements", id, "likes", getDeviceId());
+
+    // Optimistic UI update
+    const currentCount = parseInt(btn.querySelector(".js-like-count")?.textContent, 10) || 0;
+    const newCount = Math.max(0, currentCount + (!alreadyLiked ? 1 : -1));
+    btn.classList.toggle("liked", !alreadyLiked);
+    btn.innerHTML = `${!alreadyLiked ? ICONS.heartFilled : ICONS.heart} <span class="js-like-count">${newCount}</span> <span>${newCount === 1 ? "like" : "likes"}</span>`;
+
+    try {
+      if (alreadyLiked) {
+        await deleteDoc(likeRef);
+        await updateDoc(annRef, { likeCount: increment(-1) });
+        likedPosts.delete(id);
+      } else {
+        await setDoc(likeRef, { createdAt: serverTimestamp() });
+        await updateDoc(annRef, { likeCount: increment(1) });
+        likedPosts.add(id);
+      }
+      saveLikedPosts(likedPosts);
+    } catch (err) {
+      console.error("Like failed:", err);
+      // Re-sync will happen on the next onSnapshot fire regardless.
+    }
+  });
+
+  /* -- toggle comment thread --------------------------------------------- */
+  announcementsList.addEventListener("click", (e) => {
+    const btn = e.target.closest(".js-comment-toggle");
+    if (!btn) return;
+    const id = btn.dataset.annId;
+    const panel = announcementsList.querySelector(`.announcement-comments[data-ann-id="${id}"]`);
+    if (!panel) return;
+    const willOpen = !panel.classList.contains("open");
+    panel.classList.toggle("open", willOpen);
+    btn.classList.toggle("comments-open", willOpen);
+    if (willOpen) {
+      openCommentThreads.add(id);
+      loadComments(id);
+    } else {
+      openCommentThreads.delete(id);
+    }
+  });
+
+  /* -- post a comment ------------------------------------------------- */
+  announcementsList.addEventListener("submit", async (e) => {
+    const form = e.target.closest(".js-comment-form");
+    if (!form) return;
+    e.preventDefault();
+    const id = form.dataset.annId;
+    const status = form.querySelector(".comment-form-status");
+    const submitBtn = form.querySelector(".comment-form-submit");
+    const nameVal = form.name.value.trim();
+    const bodyVal = form.body.value.trim();
+    if (!nameVal || !bodyVal) return;
+
+    submitBtn.disabled = true;
+    try {
+      await addDoc(collection(db, "announcements", id, "comments"), {
+        name: nameVal,
+        body: bodyVal,
+        createdAt: serverTimestamp(),
+      });
+      await updateDoc(doc(db, "announcements", id), { commentCount: increment(1) });
+      localStorage.setItem("ub3_commenter_name", nameVal);
+      form.body.value = "";
+      status.textContent = "";
+      loadComments(id);
+    } catch (err) {
+      status.textContent = "Couldn't post your comment. Please try again.";
+      console.error("Comment failed:", err);
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+/* -- fetch + render a post's comment list (one-time read, refreshed on   */
+/*    open/post rather than a live listener, to keep reads modest) -------- */
+async function loadComments(annId) {
+  const list = announcementsList?.querySelector(`.announcement-comments[data-ann-id="${annId}"] .js-comment-list`);
+  if (!list) return;
+  list.innerHTML = `<div class="comment-empty">Loading comments…</div>`;
+  try {
+    const q = query(collection(db, "announcements", annId, "comments"), orderBy("createdAt", "asc"), limit(100));
+    const snap = await getDocs(q);
+    if (snap.empty) {
+      list.innerHTML = `<div class="comment-empty">No comments yet — be the first to reply.</div>`;
+      return;
+    }
+    list.innerHTML = snap.docs
+      .map((d) => {
+        const c = d.data();
+        const time = c.createdAt?.toDate ? timeAgo(c.createdAt.toDate()) : "";
+        return `
+          <div class="comment-item">
+            <div class="comment-avatar">${initials(c.name || "?")}</div>
+            <div class="comment-body-wrap">
+              <div class="comment-name">${escapeHtml(c.name || "Visitor")}</div>
+              <div class="comment-text">${escapeHtml(c.body || "")}</div>
+              <div class="comment-time">${time}</div>
+            </div>
+          </div>`;
+      })
+      .join("");
+  } catch (err) {
+    list.innerHTML = `<div class="comment-empty">Couldn't load comments.</div>`;
+    console.error("Load comments failed:", err);
+  }
 }

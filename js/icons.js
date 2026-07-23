@@ -18,4 +18,8 @@ export const ICONS = {
   chat: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h16v11H8l-4 4V5z"/></svg>`,
   megaphone: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11v2a2 2 0 0 0 2 2h1l1 5h2l-1-5h2l9 4V7l-9 4H6a2 2 0 0 0-2 2z"/><path d="M11 11V7"/></svg>`,
   pin: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a6 6 0 0 0-6 6c0 4.2 6 12 6 12s6-7.8 6-12a6 6 0 0 0-6-6zm0 8.2a2.2 2.2 0 1 1 0-4.4 2.2 2.2 0 0 1 0 4.4z"/></svg>`,
+  heart: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20.4S3.5 15.3 3.5 9.2A4.9 4.9 0 0 1 12 6.1a4.9 4.9 0 0 1 8.5 3.1c0 6.1-8.5 11.2-8.5 11.2z"/></svg>`,
+  heartFilled: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20.4S3.5 15.3 3.5 9.2A4.9 4.9 0 0 1 12 6.1a4.9 4.9 0 0 1 8.5 3.1c0 6.1-8.5 11.2-8.5 11.2z"/></svg>`,
+  comment: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4.5h16v11.5H9l-4.5 4V4.5z"/></svg>`,
+  send: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 12l17.5-8-6 8 6 8L3 12zm2.9 0l10.2 0 3-4-13.2 4zm0 0l13.2 4-3-4-10.2 0z"/></svg>`,
 };
