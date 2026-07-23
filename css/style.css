@@ -407,30 +407,83 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
 /* ==========================================================================
    ANNOUNCEMENTS
    ========================================================================== */
-.announcements-list { display: flex; flex-direction: column; gap: 16px; max-width: 780px; margin: 0 auto; }
-.announcement-card { padding: 26px 28px; display: flex; flex-direction: column; gap: 12px; transition: transform 0.4s var(--ease), border-color 0.4s var(--ease); }
+.announcements-list { display: flex; flex-direction: column; gap: 22px; max-width: 800px; margin: 0 auto; }
+.announcement-card { padding: 34px 36px; display: flex; flex-direction: column; gap: 16px; transition: transform 0.4s var(--ease), border-color 0.4s var(--ease); }
 .announcement-card:hover { transform: translateY(-3px); border-color: var(--surface-border-strong); }
 .announcement-card.pinned { border-color: rgba(56, 189, 248, 0.4); }
-.announcement-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
-.announcement-author { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.announcement-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.announcement-author { display: flex; align-items: center; gap: 16px; min-width: 0; }
 .announcement-avatar {
-  width: 42px; height: 42px; border-radius: 12px; flex-shrink: 0; overflow: hidden;
+  width: 58px; height: 58px; border-radius: 16px; flex-shrink: 0; overflow: hidden;
   background: var(--grad-primary); display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-display); font-size: 14px; font-weight: 700; color: #fff;
+  font-family: var(--font-display); font-size: 18px; font-weight: 700; color: #fff;
 }
 .announcement-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .announcement-who { min-width: 0; }
-.announcement-name { font-size: 14.5px; font-weight: 600; color: var(--white); display: flex; align-items: center; gap: 6px; }
-.announcement-role { font-size: 12px; color: var(--cyan-glow); font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.announcement-time { font-size: 12px; color: var(--silver-dim); font-family: var(--font-mono); white-space: nowrap; }
+.announcement-name-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.announcement-name { font-size: 16px; font-weight: 700; color: var(--white); }
+.announcement-role-badge {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: var(--cyan-glow);
+  background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3);
+  padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+}
+.announcement-meta { font-size: 13px; color: var(--silver-dim); margin-top: 3px; }
+.announcement-meta .dot { margin: 0 6px; opacity: 0.6; }
 .announcement-pin-badge {
   display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
   color: var(--cyan-glow); background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3);
   padding: 4px 10px; border-radius: 999px; font-family: var(--font-mono); flex-shrink: 0;
 }
 .announcement-pin-badge svg { width: 11px; height: 11px; }
-.announcement-title { font-size: 18px; font-family: var(--font-display); font-weight: 600; color: var(--white); }
-.announcement-body { color: var(--silver); font-size: 14.5px; line-height: 1.65; white-space: pre-line; }
+.announcement-title { font-size: 21px; font-family: var(--font-display); font-weight: 700; color: var(--white); line-height: 1.35; }
+.announcement-body { color: var(--silver); font-size: 15px; line-height: 1.7; white-space: pre-line; }
+.announcement-body.clamped { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+.announcement-see-more { align-self: flex-start; background: none; border: none; color: var(--cyan-glow); font-size: 13.5px; font-weight: 600; cursor: pointer; padding: 0; }
+.announcement-see-more:hover { text-decoration: underline; }
+
+/* -- like / comment action bar ------------------------------------------ */
+.announcement-actions { display: flex; align-items: center; gap: 10px; padding-top: 12px; border-top: 1px solid var(--surface-border); }
+.announcement-action-btn {
+  display: inline-flex; align-items: center; gap: 7px; background: none; border: none; cursor: pointer;
+  color: var(--silver-dim); font-size: 13.5px; font-weight: 600; padding: 8px 12px; border-radius: var(--radius-sm);
+  transition: background 0.2s var(--ease), color 0.2s var(--ease);
+}
+.announcement-action-btn:hover { background: var(--surface); color: var(--white); }
+.announcement-action-btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+.announcement-action-btn.liked { color: #fb7185; }
+.announcement-action-btn.liked svg { color: #fb7185; }
+.announcement-action-btn.comments-open { color: var(--cyan-glow); }
+
+/* -- comment thread ------------------------------------------------------ */
+.announcement-comments { display: none; flex-direction: column; gap: 14px; padding-top: 14px; border-top: 1px solid var(--surface-border); }
+.announcement-comments.open { display: flex; }
+.comment-form { display: flex; flex-direction: column; gap: 8px; }
+.comment-form-row { display: flex; gap: 8px; }
+.comment-form input[type="text"], .comment-form textarea {
+  width: 100%; background: var(--surface); border: 1px solid var(--surface-border); border-radius: var(--radius-sm);
+  padding: 10px 13px; font-size: 13.5px; color: var(--white); font-family: var(--font-body);
+}
+.comment-form textarea { resize: vertical; min-height: 44px; }
+.comment-form-submit {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; align-self: flex-end;
+  background: var(--grad-primary); color: #fff; border: none; border-radius: var(--radius-sm);
+  padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.comment-form-submit:disabled { opacity: 0.6; cursor: default; }
+.comment-form-status { font-size: 12.5px; color: var(--silver-dim); }
+.comment-list { display: flex; flex-direction: column; gap: 12px; }
+.comment-item { display: flex; gap: 10px; }
+.comment-avatar {
+  width: 32px; height: 32px; border-radius: 10px; flex-shrink: 0; background: var(--surface-strong);
+  display: flex; align-items: center; justify-content: center; font-size: 11.5px; font-weight: 700;
+  color: var(--silver); font-family: var(--font-display);
+}
+.comment-body-wrap { background: var(--surface); border-radius: var(--radius-sm); padding: 9px 13px; flex: 1; min-width: 0; }
+.comment-name { font-size: 13px; font-weight: 600; color: var(--white); }
+.comment-text { font-size: 13.5px; color: var(--silver); line-height: 1.55; white-space: pre-line; word-break: break-word; }
+.comment-time { font-size: 11px; color: var(--silver-dim); margin-top: 3px; }
+.comment-empty { font-size: 13px; color: var(--silver-dim); }
+
 .announcement-skeleton { height: 132px; border-radius: var(--radius-md); position: relative; overflow: hidden; }
 .announcement-skeleton::after {
   content: ""; position: absolute; inset: 0;

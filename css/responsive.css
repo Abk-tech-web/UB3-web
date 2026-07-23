@@ -32,4 +32,9 @@
   .footer-bottom { flex-direction: column; align-items: flex-start; }
   .modal-head { flex-direction: column; text-align: center; }
   .roadmap-track { padding-left: 26px; }
+  .announcement-card { padding: 22px 20px; }
+  .announcement-avatar { width: 48px; height: 48px; }
+  .announcement-title { font-size: 18px; }
+  .announcement-actions { flex-wrap: wrap; }
+  .comment-form-row { flex-direction: column; }
 }
