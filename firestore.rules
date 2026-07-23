@@ -69,6 +69,25 @@ service cloud.firestore {
     // project — can create one, and only as themselves (authorId must
     // match their own uid; they cannot post as someone else). A leader
     // can only edit or delete their own announcements.
+    //
+    // Signed-out visitors are additionally allowed to nudge ONLY the
+    // denormalized likeCount/commentCount fields by exactly ±1 per write
+    // (isValidCounterUpdate below) — this is what powers the public
+    // like/comment counts without giving visitors any other write access
+    // to the post itself.
+    function isValidCounterUpdate() {
+      let diffKeys = request.resource.data.diff(resource.data).affectedKeys();
+      let oldLike = ('likeCount' in resource.data) ? resource.data.likeCount : 0;
+      let oldComment = ('commentCount' in resource.data) ? resource.data.commentCount : 0;
+      return (diffKeys.hasOnly(['likeCount'])
+              && request.resource.data.likeCount is int
+              && (request.resource.data.likeCount == oldLike + 1
+                  || request.resource.data.likeCount == oldLike - 1))
+          || (diffKeys.hasOnly(['commentCount'])
+              && request.resource.data.commentCount is int
+              && request.resource.data.commentCount == oldComment + 1);
+    }
+
     match /announcements/{announcementId} {
       allow read: if true;
       allow create: if request.auth != null
@@ -80,10 +99,38 @@ service cloud.firestore {
                     && request.resource.data.body is string
                     && request.resource.data.body.size() > 0
                     && request.resource.data.body.size() <= 5000;
-      allow update: if request.auth != null
+      allow update: if (request.auth != null
                     && request.auth.uid == resource.data.authorId
-                    && request.resource.data.authorId == resource.data.authorId;
+                    && request.resource.data.authorId == resource.data.authorId)
+                    || isValidCounterUpdate();
       allow delete: if request.auth != null && request.auth.uid == resource.data.authorId;
+
+      // ---- announcements/{announcementId}/likes/{deviceId} -------------
+      // One doc per visitor device (id generated client-side and stored in
+      // localStorage). Anyone can create their own like or remove it again
+      // (unlike) — there's no login for visitors, so this is a lightweight,
+      // trust-based cap of one like per browser, not a hard guarantee.
+      match /likes/{likeId} {
+        allow read: if true;
+        allow create: if request.resource.data.keys().hasOnly(['createdAt']);
+        allow update: if false;
+        allow delete: if true;
+      }
+
+      // ---- announcements/{announcementId}/comments/{commentId} ---------
+      // Public comments. Anyone can post a name + message; nothing can be
+      // edited or deleted once posted via the client.
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if request.resource.data.keys().hasAll(['name', 'body', 'createdAt'])
+                      && request.resource.data.name is string
+                      && request.resource.data.name.size() > 0
+                      && request.resource.data.name.size() <= 80
+                      && request.resource.data.body is string
+                      && request.resource.data.body.size() > 0
+                      && request.resource.data.body.size() <= 1000;
+        allow update, delete: if false;
+      }
     }
   }
 }
