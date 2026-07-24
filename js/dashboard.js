@@ -26,10 +26,6 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { initials } from "./leaders-data.js";
 
-// Max photo size accepted for the profile picture. Photos are stored as a
-// base64 string directly inside the leader's Firestore document (no
-// Firebase Storage / Blaze plan required), so this must stay well under
-// Firestore's 1MB per-document limit.
 // Max size we allow the final base64 photo string to be. Photos are stored
 // directly inside the leader's Firestore document (no Firebase Storage /
 // Blaze plan required), so this must stay well under Firestore's 1MB
@@ -37,9 +33,15 @@ import { initials } from "./leaders-data.js";
 const MAX_PHOTO_DATA_URL_BYTES = 300 * 1024; // ~300KB final encoded size
 const PHOTO_MAX_DIMENSION = 480; // px, longest side
 
+// Same idea, but for an optional photo attached to an announcement post —
+// allowed to be a bit larger/wider since it's a banner image, not an avatar,
+// while still leaving plenty of headroom under Firestore's 1MiB doc limit.
+const MAX_POST_IMAGE_DATA_URL_BYTES = 700 * 1024; // ~700KB final encoded size
+const POST_IMAGE_MAX_DIMENSION = 1280; // px, longest side
+
 // Resizes/compresses an image file in the browser (via canvas) and returns
 // a small base64 data URL, regardless of how large the original photo is.
-function resizeImageToDataURL(file, maxDimension = PHOTO_MAX_DIMENSION) {
+function resizeImageToDataURL(file, maxDimension = PHOTO_MAX_DIMENSION, maxBytes = MAX_PHOTO_DATA_URL_BYTES) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
@@ -62,11 +64,11 @@ function resizeImageToDataURL(file, maxDimension = PHOTO_MAX_DIMENSION) {
       // Try decreasing JPEG quality until the result is small enough.
       let quality = 0.85;
       let dataUrl = canvas.toDataURL("image/jpeg", quality);
-      while (dataUrl.length > MAX_PHOTO_DATA_URL_BYTES && quality > 0.3) {
+      while (dataUrl.length > maxBytes && quality > 0.3) {
         quality -= 0.15;
         dataUrl = canvas.toDataURL("image/jpeg", quality);
       }
-      if (dataUrl.length > MAX_PHOTO_DATA_URL_BYTES) {
+      if (dataUrl.length > maxBytes) {
         reject(new Error("Photo is too large even after compression. Please choose a simpler image."));
         return;
       }
@@ -94,14 +96,14 @@ function readFileAsDataURL(file) {
 // pressure, an unusual color profile, etc. If that happens, fall back to
 // storing the original file directly (still capped in size) so the save
 // isn't blocked entirely.
-async function photoFileToStoredURL(file) {
+async function photoFileToStoredURL(file, maxDimension = PHOTO_MAX_DIMENSION, maxBytes = MAX_PHOTO_DATA_URL_BYTES) {
   try {
-    return await resizeImageToDataURL(file);
+    return await resizeImageToDataURL(file, maxDimension, maxBytes);
   } catch (resizeErr) {
     console.warn("Photo resize failed, falling back to raw upload:", resizeErr);
-    const RAW_FALLBACK_MAX_BYTES = 650 * 1024; // keep base64 result comfortably under Firestore's 1MB doc limit
-    if (file.size > RAW_FALLBACK_MAX_BYTES) {
-      throw new Error("Couldn't process that photo, and it's too large to store as-is. Please try a smaller image (under 650KB) or a different photo.");
+    const rawFallbackMaxBytes = Math.min(maxBytes, 650 * 1024); // keep base64 result comfortably under Firestore's 1MB doc limit
+    if (file.size > rawFallbackMaxBytes) {
+      throw new Error(`Couldn't process that photo, and it's too large to store as-is. Please try a smaller image (under ${Math.round(rawFallbackMaxBytes / 1024)}KB) or a different photo.`);
     }
     return await readFileAsDataURL(file);
   }
@@ -367,6 +369,62 @@ async function openMessage(id, m) {
 /* ---------------------------------------------------------------------- */
 /* Announcements — post to the public homepage feed                        */
 /* ---------------------------------------------------------------------- */
+
+// Same "process on selection, not on submit" reasoning as the profile
+// photo picker above.
+let pendingAnnPhotoDataURL = null;
+let pendingAnnPhotoError = null;
+
+document.getElementById("announcement-photo-input")?.addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  pendingAnnPhotoDataURL = null;
+  pendingAnnPhotoError = null;
+
+  const preview = document.getElementById("announcement-photo-preview");
+  const status = document.getElementById("announcement-photo-status");
+  const removeBtn = document.getElementById("announcement-photo-remove");
+
+  if (!file) {
+    preview.innerHTML = "No photo";
+    removeBtn.style.display = "none";
+    status.textContent = "";
+    return;
+  }
+  if (!file.type.startsWith("image/")) {
+    pendingAnnPhotoError = "Please choose an image file.";
+    status.textContent = pendingAnnPhotoError;
+    status.className = "ann-photo-status error";
+    return;
+  }
+
+  preview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="Preview">`;
+  removeBtn.style.display = "inline-block";
+  status.textContent = "Processing photo…";
+  status.className = "ann-photo-status";
+  try {
+    pendingAnnPhotoDataURL = await photoFileToStoredURL(file, POST_IMAGE_MAX_DIMENSION, MAX_POST_IMAGE_DATA_URL_BYTES);
+    status.textContent = "Photo ready — it'll be attached when you post.";
+    status.className = "ann-photo-status success";
+  } catch (err) {
+    pendingAnnPhotoError = err?.message || "Couldn't process that photo.";
+    status.textContent = pendingAnnPhotoError;
+    status.className = "ann-photo-status error";
+  }
+});
+
+document.getElementById("announcement-photo-remove")?.addEventListener("click", () => {
+  pendingAnnPhotoDataURL = null;
+  pendingAnnPhotoError = null;
+  const input = document.getElementById("announcement-photo-input");
+  const preview = document.getElementById("announcement-photo-preview");
+  const status = document.getElementById("announcement-photo-status");
+  const removeBtn = document.getElementById("announcement-photo-remove");
+  if (input) input.value = "";
+  preview.innerHTML = "No photo";
+  status.textContent = "";
+  removeBtn.style.display = "none";
+});
+
 document.getElementById("announcement-form")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.target;
@@ -378,7 +436,10 @@ document.getElementById("announcement-form")?.addEventListener("submit", async (
   btn.textContent = "Posting…";
 
   try {
-    await addDoc(collection(db, "announcements"), {
+    if (pendingAnnPhotoError) {
+      throw new Error(pendingAnnPhotoError);
+    }
+    const payload = {
       title: (data.get("title") || "").trim(),
       body: (data.get("body") || "").trim(),
       pinned: data.get("pinned") === "on",
@@ -389,12 +450,22 @@ document.getElementById("announcement-form")?.addEventListener("submit", async (
       createdAt: serverTimestamp(),
       likeCount: 0,
       commentCount: 0,
-    });
+    };
+    if (pendingAnnPhotoDataURL) payload.imageUrl = pendingAnnPhotoDataURL;
+    await addDoc(collection(db, "announcements"), payload);
     status.textContent = "Announcement posted — it's now live on the homepage.";
     status.className = "form-status success";
     form.reset();
+    pendingAnnPhotoDataURL = null;
+    pendingAnnPhotoError = null;
+    const preview = document.getElementById("announcement-photo-preview");
+    const removeBtn = document.getElementById("announcement-photo-remove");
+    const photoStatus = document.getElementById("announcement-photo-status");
+    if (preview) preview.innerHTML = "No photo";
+    if (removeBtn) removeBtn.style.display = "none";
+    if (photoStatus) photoStatus.textContent = "";
   } catch (err) {
-    status.textContent = "Couldn't post your announcement. Please try again.";
+    status.textContent = err?.message || "Couldn't post your announcement. Please try again.";
     status.className = "form-status error";
     console.error(err);
   } finally {
@@ -433,6 +504,7 @@ function watchMyAnnouncements() {
             <span class="ann-item-time">${time}</span>
           </div>
           <div class="ann-item-body">${escapeHtml(a.body)}</div>
+          ${a.imageUrl ? `<img class="ann-item-photo" src="${a.imageUrl}" alt="">` : ""}
           <div class="ann-item-actions">
             <button type="button" class="ann-pin-btn" data-id="${docSnap.id}">${a.pinned ? "Unpin" : "Pin to top"}</button>
             <button type="button" class="ann-delete-btn" data-id="${docSnap.id}">Delete</button>
