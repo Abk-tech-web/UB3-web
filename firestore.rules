@@ -107,7 +107,13 @@ service cloud.firestore {
                     && request.resource.data.title.size() <= 200
                     && request.resource.data.body is string
                     && request.resource.data.body.size() > 0
-                    && request.resource.data.body.size() <= 5000;
+                    && request.resource.data.body.size() <= 5000
+                    // Optional photo, stored as a base64 data URL (no Firebase
+                    // Storage / Blaze plan needed) — capped well under
+                    // Firestore's 1MiB per-document limit.
+                    && (!('imageUrl' in request.resource.data)
+                        || (request.resource.data.imageUrl is string
+                            && request.resource.data.imageUrl.size() <= 900000));
       allow update: if (request.auth != null
                     && request.auth.uid == resource.data.authorId
                     && request.resource.data.authorId == resource.data.authorId)
