@@ -77,18 +77,24 @@ service cloud.firestore {
     // to the post itself.
     function isValidCounterUpdate() {
       let diffKeys = request.resource.data.diff(resource.data).affectedKeys();
-      let oldLike = ('likeCount' in resource.data) ? resource.data.likeCount : 0;
-      let oldComment = ('commentCount' in resource.data) ? resource.data.commentCount : 0;
+      // Floor the "old" value at 0 before comparing: if an old bug ever
+      // left a count negative, this treats it as if it were 0 so the next
+      // legitimate like/comment self-heals it instead of being stuck
+      // forever trying to add/subtract 1 from a broken base.
+      let oldLikeRaw = ('likeCount' in resource.data) ? resource.data.likeCount : 0;
+      let oldLike = oldLikeRaw < 0 ? 0 : oldLikeRaw;
+      let oldCommentRaw = ('commentCount' in resource.data) ? resource.data.commentCount : 0;
+      let oldComment = oldCommentRaw < 0 ? 0 : oldCommentRaw;
       return (diffKeys.hasOnly(['likeCount'])
               && request.resource.data.likeCount is int
               && request.resource.data.likeCount >= 0
-              && (request.resource.data.likeCount == oldLike + 1
-                  || request.resource.data.likeCount == oldLike - 1))
+              && request.resource.data.likeCount >= oldLike - 1
+              && request.resource.data.likeCount <= oldLike + 1)
           || (diffKeys.hasOnly(['commentCount'])
               && request.resource.data.commentCount is int
               && request.resource.data.commentCount >= 0
-              && (request.resource.data.commentCount == oldComment + 1
-                  || request.resource.data.commentCount == oldComment - 1));
+              && request.resource.data.commentCount >= oldComment - 1
+              && request.resource.data.commentCount <= oldComment + 1);
     }
 
     match /announcements/{announcementId} {
@@ -131,6 +137,12 @@ service cloud.firestore {
       // comment later, without requiring a real account.
       // Requires the "Anonymous" sign-in provider to be enabled in
       // Firebase Console > Authentication > Sign-in method.
+      //
+      // A comment may optionally carry `parentId`, pointing at another
+      // comment in the same subcollection — that's what makes it a reply
+      // (Facebook-style: the client only offers "Reply" on top-level
+      // comments, so this never nests more than one level deep, though
+      // the rule itself doesn't need to enforce that).
       match /comments/{commentId} {
         allow read: if true;
         allow create: if request.auth != null
@@ -141,16 +153,47 @@ service cloud.firestore {
                       && request.resource.data.name.size() <= 80
                       && request.resource.data.body is string
                       && request.resource.data.body.size() > 0
-                      && request.resource.data.body.size() <= 1000;
-        allow update: if request.auth != null
+                      && request.resource.data.body.size() <= 1000
+                      && (!('parentId' in request.resource.data)
+                          || (request.resource.data.parentId is string
+                              && request.resource.data.parentId.size() > 0
+                              && exists(/databases/$(database)/documents/announcements/$(announcementId)/comments/$(request.resource.data.parentId))))
+                      && (!('likeCount' in request.resource.data) || request.resource.data.likeCount == 0);
+        allow update: if (request.auth != null
                       && request.auth.uid == resource.data.uid
                       && request.resource.data.uid == resource.data.uid
                       && request.resource.data.name == resource.data.name
                       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body', 'editedAt'])
                       && request.resource.data.body is string
                       && request.resource.data.body.size() > 0
-                      && request.resource.data.body.size() <= 1000;
+                      && request.resource.data.body.size() <= 1000)
+                      || isValidCommentLikeUpdate();
         allow delete: if request.auth != null && request.auth.uid == resource.data.uid;
+
+        // Any signed-in visitor may nudge ONLY the comment's own likeCount
+        // by ±1 (same self-healing, floor-at-0 pattern as post likes).
+        function isValidCommentLikeUpdate() {
+          let diffKeys = request.resource.data.diff(resource.data).affectedKeys();
+          let oldRaw = ('likeCount' in resource.data) ? resource.data.likeCount : 0;
+          let old = oldRaw < 0 ? 0 : oldRaw;
+          return request.auth != null
+              && diffKeys.hasOnly(['likeCount'])
+              && request.resource.data.likeCount is int
+              && request.resource.data.likeCount >= 0
+              && request.resource.data.likeCount >= old - 1
+              && request.resource.data.likeCount <= old + 1;
+        }
+
+        // ---- .../comments/{commentId}/likes/{uid} ----------------------
+        // One doc per visitor (doc id = their anonymous-or-real auth uid),
+        // so unlike post likes this is a real, unspoofable one-reaction cap.
+        match /likes/{uid} {
+          allow read: if true;
+          allow write: if request.auth != null
+                        && request.auth.uid == uid
+                        && request.resource.data.keys().hasOnly(['createdAt']);
+          allow delete: if request.auth != null && request.auth.uid == uid;
+        }
       }
     }
   }
