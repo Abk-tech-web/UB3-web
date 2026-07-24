@@ -697,9 +697,9 @@ if (announcementsList) {
                 ${a.pinned ? `<span class="announcement-pin-badge">${ICONS.pin}Pinned</span>` : ""}
               </div>
               <h3 class="announcement-title">${escapeHtml(a.title)}</h3>
-              ${a.imageUrl ? `<img class="announcement-photo" src="${a.imageUrl}" alt="" loading="lazy">` : ""}
               <p class="announcement-body${needsTruncate ? " clamped js-ann-body" : ""}">${escapeHtml(bodyText)}</p>
               ${needsTruncate ? `<button type="button" class="announcement-see-more js-see-more">See more</button>` : ""}
+              ${a.imageUrl ? `<img class="announcement-photo" src="${a.imageUrl}" alt="" loading="lazy">` : ""}
 
               <div class="announcement-actions">
                 <button type="button" class="announcement-action-btn js-like-btn${liked ? " liked" : ""}" data-ann-id="${id}">
