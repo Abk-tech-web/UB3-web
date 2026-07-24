@@ -577,17 +577,16 @@ function announcementAvatar(a) {
 }
 
 // Every post author is guaranteed to be one of the 9 leader accounts (only
-// they can create announcements — enforced in firestore.rules). LEADERS[0]
-// is the UB3 Official Account slot; loadLiveLeaders() overlays its real
-// Firebase uid onto LEADERS[0].uid once the live roster loads. Anyone
-// posting with that exact uid gets the Verified badge; the other 8 leaders
-// get the Affiliate badge.
+// they can create announcements — enforced in firestore.rules). Rather than
+// build a second badge design, this looks up the matching LEADERS slot (by
+// uid) and reuses the SAME verifiedBadge()/affiliateBadge() functions and
+// CSS classes as the leadership grid + profile modal — gold badge only for
+// the UB3 Official Account, blue badge + UB3 logo for the other 8 — so the
+// badges are pixel-identical everywhere they appear on the site.
 function authorBadgeHtml(a) {
-  const officialUid = LEADERS[0]?.uid;
-  const isOfficial = !!officialUid && a.authorId === officialUid;
-  return isOfficial
-    ? `<span class="author-badge badge-verified" title="Verified — UB3 Official Account">${ICONS.badge}</span>`
-    : `<span class="author-badge badge-affiliate" title="Affiliate — UB3 Leadership">${ICONS.badge}</span>`;
+  const slot = LEADERS.find((l) => l.uid && l.uid === a.authorId);
+  if (!slot) return "";
+  return `${verifiedBadge(slot)}${affiliateBadge(slot)}`;
 }
 
 function timeAgo(date) {
@@ -630,6 +629,18 @@ function getLikedPosts() {
 
 function saveLikedPosts(set) {
   localStorage.setItem("ub3_liked_posts", JSON.stringify([...set]));
+}
+
+function getLikedComments() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem("ub3_liked_comments") || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveLikedComments(set) {
+  localStorage.setItem("ub3_liked_comments", JSON.stringify([...set]));
 }
 
 // Announcement ids whose comment thread is currently expanded — preserved
@@ -772,11 +783,15 @@ if (announcementsList) {
     try {
       if (alreadyLiked) {
         await deleteDoc(likeRef);
-        await updateDoc(annRef, { likeCount: increment(-1) });
+        // A literal computed value (not increment()) so that if this post's
+        // count was ever corrupted negative by an old bug, this write
+        // self-heals it back onto a valid, non-negative number instead of
+        // trying — and forever failing — to add/subtract 1 from a broken base.
+        await updateDoc(annRef, { likeCount: newCount });
         likedPosts.delete(id);
       } else {
         await setDoc(likeRef, { createdAt: serverTimestamp() });
-        await updateDoc(annRef, { likeCount: increment(1) });
+        await updateDoc(annRef, { likeCount: newCount });
         likedPosts.add(id);
       }
       saveLikedPosts(likedPosts);
@@ -806,12 +821,14 @@ if (announcementsList) {
     }
   });
 
-  /* -- post a comment ------------------------------------------------- */
+  /* -- post a comment or a reply (same form class; replies carry a       */
+  /*    data-parent-id pointing at the comment they're replying to) ----- */
   announcementsList.addEventListener("submit", async (e) => {
     const form = e.target.closest(".js-comment-form");
     if (!form) return;
     e.preventDefault();
     const id = form.dataset.annId;
+    const parentId = form.dataset.parentId || null;
     const status = form.querySelector(".comment-form-status");
     const submitBtn = form.querySelector(".comment-form-submit");
     const nameVal = form.name.value.trim();
@@ -822,16 +839,14 @@ if (announcementsList) {
     try {
       const uid = visitorUid || (await authReady);
       if (!uid) throw new Error("Not signed in — comment ownership couldn't be established.");
-      await addDoc(collection(db, "announcements", id, "comments"), {
-        uid,
-        name: nameVal,
-        body: bodyVal,
-        createdAt: serverTimestamp(),
-      });
+      const payload = { uid, name: nameVal, body: bodyVal, createdAt: serverTimestamp() };
+      if (parentId) payload.parentId = parentId;
+      await addDoc(collection(db, "announcements", id, "comments"), payload);
       await updateDoc(doc(db, "announcements", id), { commentCount: increment(1) });
       localStorage.setItem("ub3_commenter_name", nameVal);
       form.body.value = "";
       status.textContent = "";
+      if (parentId) form.classList.remove("open");
       loadComments(id);
     } catch (err) {
       status.textContent = "Couldn't post your comment. Please try again.";
@@ -906,6 +921,69 @@ if (announcementsList) {
       return;
     }
   });
+
+  /* -- toggle a reply form under a top-level comment -------------------- */
+  announcementsList.addEventListener("click", (e) => {
+    const btn = e.target.closest(".js-comment-reply-toggle");
+    if (!btn) return;
+    const item = btn.closest(".comment-item");
+    const form = item?.querySelector(".comment-reply-form");
+    if (!form) return;
+    const willOpen = !form.classList.contains("open");
+    form.classList.toggle("open", willOpen);
+    if (willOpen) {
+      const savedName = localStorage.getItem("ub3_commenter_name") || "";
+      if (savedName && !form.name.value) form.name.value = savedName;
+      form.body.focus();
+    }
+  });
+
+  /* -- react (like) to a comment or reply -------------------------------- */
+  announcementsList.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".js-comment-like");
+    if (!btn || btn.dataset.busy === "1") return;
+    btn.dataset.busy = "1";
+
+    const item = btn.closest(".comment-item");
+    const annId = item.dataset.annId;
+    const commentId = item.dataset.commentId;
+    const key = `${annId}:${commentId}`;
+    const likedComments = getLikedComments();
+    const alreadyLiked = likedComments.has(key);
+
+    const uid = visitorUid || (await authReady);
+    if (!uid) {
+      btn.dataset.busy = "";
+      return;
+    }
+
+    const commentRef = doc(db, "announcements", annId, "comments", commentId);
+    const likeRef = doc(db, "announcements", annId, "comments", commentId, "likes", uid);
+
+    // Optimistic UI update
+    const currentCount = parseInt(btn.querySelector(".js-comment-like-count")?.textContent, 10) || 0;
+    const newCount = Math.max(0, currentCount + (!alreadyLiked ? 1 : -1));
+    btn.classList.toggle("liked", !alreadyLiked);
+    btn.innerHTML = `${!alreadyLiked ? ICONS.heartFilled : ICONS.heart}<span class="js-comment-like-count">${newCount}</span>`;
+
+    try {
+      if (alreadyLiked) {
+        await deleteDoc(likeRef);
+        // Literal value (not increment()) — same self-healing reasoning as post likes.
+        await updateDoc(commentRef, { likeCount: newCount });
+        likedComments.delete(key);
+      } else {
+        await setDoc(likeRef, { createdAt: serverTimestamp() });
+        await updateDoc(commentRef, { likeCount: newCount });
+        likedComments.add(key);
+      }
+      saveLikedComments(likedComments);
+    } catch (err) {
+      console.error("Comment like failed:", err);
+    } finally {
+      btn.dataset.busy = "";
+    }
+  });
 }
 
 /* -- fetch + render a post's comment list (one-time read, refreshed on   */
@@ -916,40 +994,78 @@ async function loadComments(annId) {
   list.innerHTML = `<div class="comment-empty">Loading comments…</div>`;
   try {
     const ownUid = visitorUid || (await authReady);
-    const q = query(collection(db, "announcements", annId, "comments"), orderBy("createdAt", "asc"), limit(100));
+    const likedComments = getLikedComments();
+    const q = query(collection(db, "announcements", annId, "comments"), orderBy("createdAt", "asc"), limit(200));
     const snap = await getDocs(q);
     if (snap.empty) {
       list.innerHTML = `<div class="comment-empty">No comments yet — be the first to reply.</div>`;
       return;
     }
-    list.innerHTML = snap.docs
-      .map((d) => {
-        const c = d.data();
-        const time = c.createdAt?.toDate ? timeAgo(c.createdAt.toDate()) : "";
-        const isOwner = ownUid && c.uid && c.uid === ownUid;
-        return `
-          <div class="comment-item" data-ann-id="${annId}" data-comment-id="${d.id}">
-            <div class="comment-avatar">${initials(c.name || "?")}</div>
-            <div class="comment-body-wrap">
-              <div class="comment-name">${escapeHtml(c.name || "Visitor")}</div>
-              <div class="comment-text js-comment-text">${escapeHtml(c.body || "")}</div>
-              <textarea class="js-comment-edit-input" maxlength="1000">${escapeHtml(c.body || "")}</textarea>
-              <div class="comment-time">${time}${c.editedAt ? " · edited" : ""}</div>
-              ${isOwner ? `
-                <div class="comment-owner-actions">
-                  <button type="button" class="comment-mini-btn js-comment-edit">Edit</button>
-                  <button type="button" class="comment-mini-btn js-comment-delete">Delete</button>
-                </div>
-                <div class="comment-edit-actions">
-                  <button type="button" class="comment-mini-btn js-comment-cancel">Cancel</button>
-                  <button type="button" class="comment-mini-btn primary js-comment-save">Save</button>
-                </div>` : ""}
-            </div>
-          </div>`;
+
+    // Comments are stored flat, with an optional `parentId` marking a
+    // reply — grouped here into top-level comments + their replies so the
+    // whole thread only needs one Firestore read.
+    const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const topLevel = all.filter((c) => !c.parentId);
+    const repliesByParent = new Map();
+    all.forEach((c) => {
+      if (!c.parentId) return;
+      if (!repliesByParent.has(c.parentId)) repliesByParent.set(c.parentId, []);
+      repliesByParent.get(c.parentId).push(c);
+    });
+
+    list.innerHTML = topLevel
+      .map((c) => {
+        const repliesHtml = (repliesByParent.get(c.id) || [])
+          .map((r) => renderCommentHtml(r, annId, ownUid, likedComments, true))
+          .join("");
+        return renderCommentHtml(c, annId, ownUid, likedComments, false, repliesHtml);
       })
       .join("");
   } catch (err) {
     list.innerHTML = `<div class="comment-empty">Couldn't load comments.</div>`;
     console.error("Load comments failed:", err);
   }
+}
+
+function renderCommentHtml(c, annId, ownUid, likedComments, isReply, repliesHtml = "") {
+  const id = c.id;
+  const time = c.createdAt?.toDate ? timeAgo(c.createdAt.toDate()) : "";
+  const isOwner = ownUid && c.uid && c.uid === ownUid;
+  const likeCount = Math.max(0, c.likeCount || 0);
+  const liked = likedComments.has(`${annId}:${id}`);
+
+  return `
+    <div class="comment-item${isReply ? " is-reply" : ""}" data-ann-id="${annId}" data-comment-id="${id}">
+      <div class="comment-avatar">${initials(c.name || "?")}</div>
+      <div class="comment-body-wrap">
+        <div class="comment-name">${escapeHtml(c.name || "Visitor")}</div>
+        <div class="comment-text js-comment-text">${escapeHtml(c.body || "")}</div>
+        <textarea class="js-comment-edit-input" maxlength="1000">${escapeHtml(c.body || "")}</textarea>
+
+        <div class="comment-meta-row">
+          <span class="comment-time">${time}${c.editedAt ? " · edited" : ""}</span>
+          <button type="button" class="comment-mini-btn js-comment-like${liked ? " liked" : ""}">${liked ? ICONS.heartFilled : ICONS.heart}<span class="js-comment-like-count">${likeCount}</span></button>
+          ${!isReply ? `<button type="button" class="comment-mini-btn js-comment-reply-toggle">Reply</button>` : ""}
+          ${isOwner ? `
+            <button type="button" class="comment-mini-btn js-comment-edit">Edit</button>
+            <button type="button" class="comment-mini-btn js-comment-delete">Delete</button>` : ""}
+        </div>
+        <div class="comment-edit-actions">
+          <button type="button" class="comment-mini-btn js-comment-cancel">Cancel</button>
+          <button type="button" class="comment-mini-btn primary js-comment-save">Save</button>
+        </div>
+
+        ${!isReply ? `
+          <form class="comment-form comment-reply-form js-comment-form" data-ann-id="${annId}" data-parent-id="${id}">
+            <div class="comment-form-row">
+              <input type="text" name="name" placeholder="Your name" maxlength="80" required>
+            </div>
+            <textarea name="body" rows="2" maxlength="1000" placeholder="Write a reply…" required></textarea>
+            <button type="submit" class="comment-form-submit">${ICONS.send} Reply</button>
+            <p class="comment-form-status"></p>
+          </form>
+          <div class="comment-replies">${repliesHtml}</div>` : ""}
+      </div>
+    </div>`;
 }
