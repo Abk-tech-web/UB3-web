@@ -159,8 +159,18 @@ service cloud.firestore {
       // unspoofable Firebase Auth id, not just a self-reported field. That
       // lets us safely allow a commenter to edit or delete ONLY their own
       // comment later, without requiring a real account.
-      // Requires the "Anonymous" sign-in provider to be enabled in
-      // Firebase Console > Authentication > Sign-in method.
+      //
+      // Commenting requires a REAL signed-in identity — Google Sign-In for
+      // visitors, or a leader's own dashboard login — never the plain
+      // anonymous session (js/main.js still uses that for likes, but no
+      // longer offers a free-typed name for comments, since that was
+      // trivially spoofable). `name` must match what that identity
+      // actually asserts: the leader's own profile name if the uid is a
+      // registered leader, otherwise the exact name on their Google
+      // account — so nobody can type a different person's name.
+      // Requires the "Anonymous" AND "Google" sign-in providers enabled in
+      // Firebase Console > Authentication > Sign-in method, and this site's
+      // domain added under Authentication > Settings > Authorized domains.
       //
       // A comment may optionally carry `parentId`, pointing at another
       // comment in the same subcollection — that's what makes it a reply
@@ -170,14 +180,19 @@ service cloud.firestore {
       match /comments/{commentId} {
         allow read: if true;
         allow create: if request.auth != null
+                      && request.auth.token.firebase.sign_in_provider != 'anonymous'
                       && request.resource.data.uid == request.auth.uid
                       && request.resource.data.keys().hasAll(['uid', 'name', 'body', 'createdAt'])
                       && request.resource.data.name is string
                       && request.resource.data.name.size() > 0
                       && request.resource.data.name.size() <= 80
+                      && (request.resource.data.name == request.auth.token.name
+                          || exists(/databases/$(database)/documents/leaders/$(request.auth.uid)))
                       && request.resource.data.body is string
                       && request.resource.data.body.size() > 0
                       && request.resource.data.body.size() <= 1000
+                      && (!('photoURL' in request.resource.data)
+                          || (request.resource.data.photoURL is string && request.resource.data.photoURL.size() <= 500))
                       && (!('parentId' in request.resource.data)
                           || (request.resource.data.parentId is string
                               && request.resource.data.parentId.size() > 0
@@ -196,6 +211,9 @@ service cloud.firestore {
 
         // Any signed-in visitor may nudge ONLY the comment's own likeCount
         // by ±1 (same self-healing, floor-at-0 pattern as post likes).
+        // Reacting (unlike commenting) still doesn't require Google
+        // Sign-In — there's no name attached to a like, so there's
+        // nothing to spoof.
         function isValidCommentLikeUpdate() {
           let diffKeys = request.resource.data.diff(resource.data).affectedKeys();
           let oldRaw = ('likeCount' in resource.data) ? resource.data.likeCount : 0;
