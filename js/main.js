@@ -25,6 +25,9 @@ import {
 import {
   signInAnonymously,
   onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { LEADERS, initials } from "./leaders-data.js";
 import { ICONS } from "./icons.js";
@@ -539,26 +542,90 @@ const yearEl = document.getElementById("year");
 if (yearEl) yearEl.textContent = new Date().getFullYear();
 
 /* ---------------------------------------------------------------------- */
-/* Visitor identity for comments (anonymous Firebase Auth)                 */
-/* Every visitor — including ones who never log in — gets a lightweight    */
-/* anonymous auth session. This gives each comment a real, unspoofable     */
-/* owner (auth.uid) so we can safely let people edit/delete their own      */
-/* comments later, without requiring an account. Requires the "Anonymous"  */
-/* sign-in provider to be enabled in Firebase Console > Authentication.    */
+/* Visitor identity for comments (Firebase Auth)                           */
+/* Every visitor gets a lightweight anonymous session on load — that's     */
+/* enough to like posts/comments (no name attached, nothing to spoof).     */
+/* Commenting, though, requires signing in for real: with Google, or by    */
+/* already being logged into a leader's dashboard account on this browser. */
+/* That's what lets a comment safely show a real name instead of a         */
+/* free-typed one anybody could fake. Requires the "Anonymous" AND         */
+/* "Google" sign-in providers enabled in Firebase Console > Authentication,*/
+/* and this site's domain added under Authentication > Settings >          */
+/* Authorized domains (needed for the Google sign-in popup to work).       */
 /* ---------------------------------------------------------------------- */
 let visitorUid = null;
+let visitorIsAnonymous = true;
+let visitorDisplayName = "";
+let visitorPhotoURL = "";
+let authResolve;
 const authReady = new Promise((resolve) => {
-  onAuthStateChanged(auth, (user) => {
-    if (user) {
-      visitorUid = user.uid;
-      resolve(user.uid);
-    } else {
-      signInAnonymously(auth).catch((err) => {
-        console.error("Anonymous sign-in failed (enable it in Firebase Console > Authentication > Sign-in method):", err);
-        resolve(null);
-      });
-    }
+  authResolve = resolve;
+});
+
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    visitorUid = user.uid;
+    visitorIsAnonymous = user.isAnonymous;
+    visitorDisplayName = user.displayName || "";
+    visitorPhotoURL = user.photoURL || "";
+    authResolve(user.uid);
+    refreshCommentAuthUI();
+  } else {
+    signInAnonymously(auth).catch((err) => {
+      console.error("Anonymous sign-in failed (enable it in Firebase Console > Authentication > Sign-in method):", err);
+      authResolve(null);
+    });
+  }
+});
+
+async function googleSignIn() {
+  try {
+    await signInWithPopup(auth, new GoogleAuthProvider());
+  } catch (err) {
+    console.error("Google sign-in failed:", err);
+    alert("Couldn't sign in with Google. Please try again.");
+  }
+}
+
+async function commentSignOut() {
+  try {
+    await signOut(auth);
+    // onAuthStateChanged fires with user === null next, which re-signs
+    // back into a fresh anonymous session automatically.
+  } catch (err) {
+    console.error("Sign out failed:", err);
+  }
+}
+
+// The little "sign in to comment" / "commenting as X" block shown at the
+// top of every comment box. Re-rendered into every currently-open form
+// whenever the sign-in state changes (see refreshCommentAuthUI below), so
+// a visitor who signs in partway through never has to reopen the box.
+function commentAuthStatusHtml() {
+  if (visitorIsAnonymous) {
+    return `<button type="button" class="comment-google-btn js-google-signin">Sign in with Google to comment</button>`;
+  }
+  return `
+    <div class="commenting-as">
+      ${visitorPhotoURL ? `<img class="commenting-as-avatar" src="${visitorPhotoURL}" alt="">` : ""}
+      <span>Commenting as <strong>${escapeHtml(visitorDisplayName || "you")}</strong></span>
+      <button type="button" class="comment-signout-btn js-comment-signout">Not you?</button>
+    </div>`;
+}
+
+// Called on every sign-in/sign-out — updates any comment forms already in
+// the DOM in place, without needing a full feed re-render.
+function refreshCommentAuthUI() {
+  document.querySelectorAll(".js-comment-form").forEach((form) => {
+    const statusEl = form.querySelector(".comment-auth-status");
+    if (statusEl) statusEl.innerHTML = commentAuthStatusHtml();
+    form.classList.toggle("signed-out", visitorIsAnonymous);
   });
+}
+
+document.addEventListener("click", (e) => {
+  if (e.target.closest(".js-google-signin")) googleSignIn();
+  if (e.target.closest(".js-comment-signout")) commentSignOut();
 });
 
 /* ---------------------------------------------------------------------- */
@@ -679,6 +746,7 @@ async function notifyLeader({ leaderId, type, actorName, body, announcementId, c
 
 if (announcementsList) {
   await liveLeadersReady.catch(() => {});
+  await authReady.catch(() => {});
   const annQuery = query(
     collection(db, "announcements"),
     orderBy("pinned", "desc"),
@@ -743,10 +811,8 @@ if (announcementsList) {
               </div>
 
               <div class="announcement-comments${commentsOpen ? " open" : ""}" data-ann-id="${id}">
-                <form class="comment-form js-comment-form" data-ann-id="${id}">
-                  <div class="comment-form-row">
-                    <input type="text" name="name" placeholder="Your name" maxlength="80" required>
-                  </div>
+                <form class="comment-form js-comment-form${visitorIsAnonymous ? " signed-out" : ""}" data-ann-id="${id}">
+                  <div class="comment-auth-status">${commentAuthStatusHtml()}</div>
                   <textarea name="body" rows="2" maxlength="1000" placeholder="Write a comment…" required></textarea>
                   <button type="submit" class="comment-form-submit">${ICONS.send} Post</button>
                   <p class="comment-form-status"></p>
@@ -758,14 +824,6 @@ if (announcementsList) {
         .join("");
 
       announcementsList.querySelectorAll(".reveal").forEach((el) => io.observe(el));
-
-      // Prefill remembered commenter name
-      const savedName = localStorage.getItem("ub3_commenter_name") || "";
-      if (savedName) {
-        announcementsList.querySelectorAll('.comment-form input[name="name"]').forEach((inp) => {
-          inp.value = savedName;
-        });
-      }
 
       // Restore any open comment threads (re-fetch their comments since the
       // whole list HTML was just replaced by this snapshot).
@@ -869,19 +927,24 @@ if (announcementsList) {
     const parentId = form.dataset.parentId || null;
     const status = form.querySelector(".comment-form-status");
     const submitBtn = form.querySelector(".comment-form-submit");
-    const nameVal = form.name.value.trim();
     const bodyVal = form.body.value.trim();
-    if (!nameVal || !bodyVal) return;
+    if (!bodyVal) return;
+
+    if (visitorIsAnonymous) {
+      status.textContent = "Please sign in with Google above to comment.";
+      return;
+    }
 
     submitBtn.disabled = true;
     try {
       const uid = visitorUid || (await authReady);
       if (!uid) throw new Error("Not signed in — comment ownership couldn't be established.");
+      const nameVal = visitorDisplayName || "Visitor";
       const payload = { uid, name: nameVal, body: bodyVal, createdAt: serverTimestamp() };
       if (parentId) payload.parentId = parentId;
+      if (visitorPhotoURL) payload.photoURL = visitorPhotoURL;
       await addDoc(collection(db, "announcements", id, "comments"), payload);
       await updateDoc(doc(db, "announcements", id), { commentCount: increment(1) });
-      localStorage.setItem("ub3_commenter_name", nameVal);
 
       const excerpt = bodyVal.length > 100 ? `${bodyVal.slice(0, 100)}…` : bodyVal;
       if (parentId) {
@@ -992,11 +1055,7 @@ if (announcementsList) {
     if (!form) return;
     const willOpen = !form.classList.contains("open");
     form.classList.toggle("open", willOpen);
-    if (willOpen) {
-      const savedName = localStorage.getItem("ub3_commenter_name") || "";
-      if (savedName && !form.name.value) form.name.value = savedName;
-      form.body.focus();
-    }
+    if (willOpen && !visitorIsAnonymous) form.body.focus();
   });
 
   /* -- react (like) to a comment or reply -------------------------------- */
@@ -1105,11 +1164,30 @@ function renderCommentHtml(c, annId, ownUid, likedComments, isReply, repliesHtml
   const likeCount = Math.max(0, c.likeCount || 0);
   const liked = likedComments.has(`${annId}:${id}`);
 
+  // If this commenter is one of the 9 leader accounts, show their real
+  // name + position + the same verified/affiliate badges used on their
+  // posts — instead of just a plain visitor name — so it's obvious when a
+  // leader is speaking. Reuses LEADERS[].uid, the same lookup as posts.
+  const leaderSlot = LEADERS.find((l) => l.uid && l.uid === c.uid);
+  const avatarHtml = leaderSlot?.photo
+    ? `<img src="${leaderSlot.photo}" alt="">`
+    : c.photoURL
+    ? `<img src="${c.photoURL}" alt="">`
+    : initials(c.name || "?");
+  const nameHtml = leaderSlot
+    ? `
+      <div class="comment-name-row">
+        <span class="comment-name">${escapeHtml(c.name || leaderSlot.name)}</span>
+        ${verifiedBadge(leaderSlot)}${affiliateBadge(leaderSlot)}
+      </div>
+      ${leaderSlot.position ? `<span class="comment-role-badge">${escapeHtml(leaderSlot.position)}</span>` : ""}`
+    : `<div class="comment-name">${escapeHtml(c.name || "Visitor")}</div>`;
+
   return `
     <div class="comment-item${isReply ? " is-reply" : ""}" data-ann-id="${annId}" data-comment-id="${id}" data-owner-uid="${c.uid || ""}">
-      <div class="comment-avatar">${initials(c.name || "?")}</div>
+      <div class="comment-avatar${c.photoURL || leaderSlot?.photo ? " has-photo" : ""}">${avatarHtml}</div>
       <div class="comment-body-wrap">
-        <div class="comment-name">${escapeHtml(c.name || "Visitor")}</div>
+        ${nameHtml}
         <div class="comment-text js-comment-text">${escapeHtml(c.body || "")}</div>
         <textarea class="js-comment-edit-input" maxlength="1000">${escapeHtml(c.body || "")}</textarea>
 
@@ -1127,10 +1205,8 @@ function renderCommentHtml(c, annId, ownUid, likedComments, isReply, repliesHtml
         </div>
 
         ${!isReply ? `
-          <form class="comment-form comment-reply-form js-comment-form" data-ann-id="${annId}" data-parent-id="${id}">
-            <div class="comment-form-row">
-              <input type="text" name="name" placeholder="Your name" maxlength="80" required>
-            </div>
+          <form class="comment-form comment-reply-form js-comment-form${visitorIsAnonymous ? " signed-out" : ""}" data-ann-id="${annId}" data-parent-id="${id}">
+            <div class="comment-auth-status">${commentAuthStatusHtml()}</div>
             <textarea name="body" rows="2" maxlength="1000" placeholder="Write a reply…" required></textarea>
             <button type="submit" class="comment-form-submit">${ICONS.send} Reply</button>
             <p class="comment-form-status"></p>

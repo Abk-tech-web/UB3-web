@@ -8,9 +8,12 @@
 // 1. Go to https://console.firebase.google.com and create a project (e.g. "ub3-platform").
 // 2. In Project settings > General > Your apps, add a "Web app" and copy the
 //    firebaseConfig object it gives you into FIREBASE_CONFIG below.
-// 3. Enable Authentication > Sign-in method > Email/Password AND Anonymous
-//    (Anonymous powers visitor likes/comments, including letting a visitor
-//    edit or delete their own comment later).
+// 3. Enable Authentication > Sign-in method > Email/Password, Anonymous,
+//    AND Google (Anonymous powers visitor likes; Google is required for a
+//    visitor to comment under their real name — the free-typed name field
+//    was removed for security). Also add this site's domain under
+//    Authentication > Settings > Authorized domains, or the Google
+//    sign-in popup will fail with auth/unauthorized-domain.
 // 4. Create a Firestore database (production mode) and deploy firestore.rules
 //    (included in this project) via the Firebase console or CLI:
 //        firebase deploy --only firestore:rules
