@@ -55,9 +55,27 @@ service cloud.firestore {
     }
 
     // ---- notifications/{notificationId} --------------------------------
+    // A leader gets one of these whenever a visitor likes/comments on
+    // their post, likes their comment, or replies to their comment
+    // (js/main.js writes these as a side effect of those actions — never
+    // when a leader does it to their own post/comment). Only the
+    // recipient can ever read their own notifications or mark one read.
     match /notifications/{notificationId} {
-      allow read, update: if request.auth != null && request.auth.uid == resource.data.leaderId;
-      allow create: if request.auth != null;
+      allow read: if request.auth != null && request.auth.uid == resource.data.leaderId;
+      allow update: if request.auth != null
+                    && request.auth.uid == resource.data.leaderId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasAll(['leaderId', 'type', 'actorName', 'body', 'read', 'createdAt'])
+                    && request.resource.data.leaderId is string
+                    && request.resource.data.leaderId != request.auth.uid
+                    && exists(/databases/$(database)/documents/leaders/$(request.resource.data.leaderId))
+                    && request.resource.data.type is string
+                    && request.resource.data.actorName is string
+                    && request.resource.data.actorName.size() <= 80
+                    && request.resource.data.body is string
+                    && request.resource.data.body.size() <= 300
+                    && request.resource.data.read == false;
       allow delete: if false;
     }
 

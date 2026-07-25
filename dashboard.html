@@ -70,6 +70,7 @@
     <button class="dash-nav-item active" data-panel="overview">Overview</button>
     <button class="dash-nav-item" data-panel="profile">Edit Profile</button>
     <button class="dash-nav-item" data-panel="announcements">Announcements</button>
+    <button class="dash-nav-item" data-panel="notifications">Notifications <span id="notif-badge"></span></button>
     <button class="dash-nav-item" data-panel="inbox">Inbox <span id="unread-badge"></span></button>
     <button class="dash-nav-item" data-panel="security">Security</button>
     <div class="dash-side-foot">
@@ -167,6 +168,18 @@
       <div class="dash-card glass">
         <h3>Your Announcements</h3>
         <div class="msg-list" id="my-announcements-list"><div class="empty-state">Loading your announcements…</div></div>
+      </div>
+    </section>
+
+    <!-- NOTIFICATIONS -->
+    <section class="dash-panel" data-panel="notifications">
+      <div class="dash-card glass">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:18px;">
+          <h3 style="margin:0;">Notifications</h3>
+          <button type="button" class="ann-pin-btn" id="notif-mark-all-read">Mark all as read</button>
+        </div>
+        <p style="color:var(--silver-dim); font-size:13.5px; margin-top:-10px; margin-bottom:18px;">You'll see one here whenever a visitor likes or comments on your posts, likes your comment, or replies to it.</p>
+        <div class="msg-list" id="notif-list"><div class="empty-state">Loading notifications…</div></div>
       </div>
     </section>
 
