@@ -605,10 +605,12 @@ function commentAuthStatusHtml() {
   if (visitorIsAnonymous) {
     return `<button type="button" class="comment-google-btn js-google-signin">Sign in with Google to comment</button>`;
   }
+  const leaderSlot = LEADERS.find((l) => l.uid && l.uid === visitorUid);
+  const displayName = leaderSlot?.name || visitorDisplayName || "you";
   return `
     <div class="commenting-as">
       ${visitorPhotoURL ? `<img class="commenting-as-avatar" src="${visitorPhotoURL}" alt="">` : ""}
-      <span>Commenting as <strong>${escapeHtml(visitorDisplayName || "you")}</strong></span>
+      <span>Commenting as <strong>${escapeHtml(displayName)}</strong></span>
       <button type="button" class="comment-signout-btn js-comment-signout">Not you?</button>
     </div>`;
 }
@@ -939,7 +941,12 @@ if (announcementsList) {
     try {
       const uid = visitorUid || (await authReady);
       if (!uid) throw new Error("Not signed in — comment ownership couldn't be established.");
-      const nameVal = visitorDisplayName || "Visitor";
+      // A leader's real name lives in their Firestore profile (LEADERS,
+      // populated by loadLiveLeaders), not necessarily on their Firebase
+      // Auth account's displayName field — so for a registered leader,
+      // prefer that over the (possibly empty) Auth displayName.
+      const leaderSlot = LEADERS.find((l) => l.uid && l.uid === uid);
+      const nameVal = leaderSlot?.name || visitorDisplayName || "Visitor";
       const payload = { uid, name: nameVal, body: bodyVal, createdAt: serverTimestamp() };
       if (parentId) payload.parentId = parentId;
       if (visitorPhotoURL) payload.photoURL = visitorPhotoURL;
