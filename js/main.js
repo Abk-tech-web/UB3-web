@@ -648,6 +648,35 @@ function saveLikedComments(set) {
 // someone else likes/comments elsewhere in the feed.
 const openCommentThreads = new Set();
 
+// id -> { authorId, title } for every announcement currently rendered, kept
+// up to date on every feed render. Lets a like/comment notification look up
+// who to notify and what post it was about without an extra Firestore read.
+const announcementMeta = new Map();
+
+// Writes a notification for a leader as a side effect of a visitor action
+// (like, comment, reply). Never notifies someone about their own action.
+// Failures here are logged but never surfaced to the visitor — a
+// notification not landing shouldn't block or error out their like/comment.
+async function notifyLeader({ leaderId, type, actorName, body, announcementId, commentId }) {
+  if (!leaderId) return;
+  const uid = visitorUid || (await authReady);
+  if (uid && uid === leaderId) return;
+  try {
+    await addDoc(collection(db, "notifications"), {
+      leaderId,
+      type,
+      actorName: actorName || "Someone",
+      body,
+      announcementId: announcementId || null,
+      commentId: commentId || null,
+      read: false,
+      createdAt: serverTimestamp(),
+    });
+  } catch (err) {
+    console.error("Notification failed (non-fatal):", err);
+  }
+}
+
 if (announcementsList) {
   await liveLeadersReady.catch(() => {});
   const annQuery = query(
@@ -672,6 +701,7 @@ if (announcementsList) {
         .map((docSnap, idx) => {
           const id = docSnap.id;
           const a = docSnap.data();
+          announcementMeta.set(id, { authorId: a.authorId, title: a.title || "" });
           const time = a.createdAt?.toDate ? timeAgo(a.createdAt.toDate()) : "";
           const liked = likedPosts.has(id);
           const likeCount = Math.max(0, a.likeCount || 0);
@@ -794,6 +824,13 @@ if (announcementsList) {
         await setDoc(likeRef, { createdAt: serverTimestamp() });
         await updateDoc(annRef, { likeCount: newCount });
         likedPosts.add(id);
+        const meta = announcementMeta.get(id);
+        notifyLeader({
+          leaderId: meta?.authorId,
+          type: "post_like",
+          body: `Someone liked your post "${meta?.title || "your announcement"}".`,
+          announcementId: id,
+        });
       }
       saveLikedPosts(likedPosts);
     } catch (err) {
@@ -845,6 +882,29 @@ if (announcementsList) {
       await addDoc(collection(db, "announcements", id, "comments"), payload);
       await updateDoc(doc(db, "announcements", id), { commentCount: increment(1) });
       localStorage.setItem("ub3_commenter_name", nameVal);
+
+      const excerpt = bodyVal.length > 100 ? `${bodyVal.slice(0, 100)}…` : bodyVal;
+      if (parentId) {
+        const parentOwnerUid = form.closest(".comment-item")?.dataset.ownerUid;
+        notifyLeader({
+          leaderId: parentOwnerUid,
+          type: "comment_reply",
+          actorName: nameVal,
+          body: `${nameVal} replied to your comment: "${excerpt}"`,
+          announcementId: id,
+          commentId: parentId,
+        });
+      } else {
+        const meta = announcementMeta.get(id);
+        notifyLeader({
+          leaderId: meta?.authorId,
+          type: "post_comment",
+          actorName: nameVal,
+          body: `${nameVal} commented on your post "${meta?.title || "your announcement"}": "${excerpt}"`,
+          announcementId: id,
+        });
+      }
+
       form.body.value = "";
       status.textContent = "";
       if (parentId) form.classList.remove("open");
@@ -977,6 +1037,15 @@ if (announcementsList) {
         await setDoc(likeRef, { createdAt: serverTimestamp() });
         await updateDoc(commentRef, { likeCount: newCount });
         likedComments.add(key);
+        const commentText = item.querySelector(".js-comment-text")?.textContent || "";
+        const excerpt = commentText.length > 100 ? `${commentText.slice(0, 100)}…` : commentText;
+        notifyLeader({
+          leaderId: item.dataset.ownerUid,
+          type: "comment_like",
+          body: `Someone liked your comment: "${excerpt}"`,
+          announcementId: annId,
+          commentId,
+        });
       }
       saveLikedComments(likedComments);
     } catch (err) {
@@ -1037,7 +1106,7 @@ function renderCommentHtml(c, annId, ownUid, likedComments, isReply, repliesHtml
   const liked = likedComments.has(`${annId}:${id}`);
 
   return `
-    <div class="comment-item${isReply ? " is-reply" : ""}" data-ann-id="${annId}" data-comment-id="${id}">
+    <div class="comment-item${isReply ? " is-reply" : ""}" data-ann-id="${annId}" data-comment-id="${id}" data-owner-uid="${c.uid || ""}">
       <div class="comment-avatar">${initials(c.name || "?")}</div>
       <div class="comment-body-wrap">
         <div class="comment-name">${escapeHtml(c.name || "Visitor")}</div>

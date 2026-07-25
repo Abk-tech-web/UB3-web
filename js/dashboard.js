@@ -13,6 +13,7 @@ import {
 import {
   doc,
   getDoc,
+  getDocs,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -21,6 +22,7 @@ import {
   query,
   where,
   orderBy,
+  limit,
   onSnapshot,
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -151,6 +153,7 @@ onAuthStateChanged(auth, async (user) => {
   populateProfileForm();
   watchInbox();
   watchMyAnnouncements();
+  watchNotifications();
 });
 
 document.getElementById("logout-btn")?.addEventListener("click", async () => {
@@ -365,6 +368,108 @@ async function openMessage(id, m) {
   const body = encodeURIComponent(`Hi ${m.fromName || ""},\n\n`);
   window.location.href = `mailto:${m.fromEmail}?subject=${subject}&body=${body}`;
 }
+
+/* ---------------------------------------------------------------------- */
+/* Notifications — a visitor liking/commenting on this leader's posts or   */
+/* comments (js/main.js writes these as a side effect on the public site)  */
+/* ---------------------------------------------------------------------- */
+const NOTIF_LABELS = {
+  post_like: "Liked your post",
+  post_comment: "Commented on your post",
+  comment_like: "Liked your comment",
+  comment_reply: "Replied to your comment",
+};
+
+function watchNotifications() {
+  const list = document.getElementById("notif-list");
+  if (!list) return;
+
+  const q = query(
+    collection(db, "notifications"),
+    where("leaderId", "==", currentUser.uid),
+    orderBy("createdAt", "desc"),
+    limit(50)
+  );
+
+  onSnapshot(
+    q,
+    (snap) => {
+      if (snap.empty) {
+        list.innerHTML = `<div class="empty-state">No notifications yet — you'll see one here whenever a visitor engages with your posts or comments.</div>`;
+        updateNotifUnreadCount(0);
+        return;
+      }
+
+      let unread = 0;
+      list.innerHTML = "";
+      snap.forEach((docSnap) => {
+        const n = docSnap.data();
+        if (!n.read) unread++;
+        const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString() : "";
+        const item = document.createElement("div");
+        item.className = `msg-item glass ${n.read ? "" : "unread"}`;
+        item.innerHTML = `
+          <div class="msg-top">
+            <span class="msg-from">${NOTIF_LABELS[n.type] || "New activity"}</span>
+            <span class="msg-time">${time}</span>
+          </div>
+          <div class="msg-preview">${escapeHtml(n.body || "")}</div>
+        `;
+        item.addEventListener("click", () => openNotification(docSnap.id, n));
+        list.appendChild(item);
+      });
+
+      updateNotifUnreadCount(unread);
+    },
+    (err) => {
+      const detail = err?.message || err?.code || "unknown error";
+      const urlMatch = detail.match(/https:\/\/console\.firebase\.google\.com\S+/);
+      const detailHtml = urlMatch
+        ? detail.slice(0, urlMatch.index) +
+          `<a href="${urlMatch[0]}" target="_blank" rel="noopener" style="color:#7dd3fc;text-decoration:underline;">Tap here to create the required index</a>` +
+          detail.slice(urlMatch.index + urlMatch[0].length)
+        : detail;
+      list.innerHTML = `<div class="empty-state">Couldn't load notifications right now.<br><small style="opacity:.7;word-break:break-word;">(${detailHtml})</small></div>`;
+      console.error(err);
+    }
+  );
+}
+
+function updateNotifUnreadCount(count) {
+  const badge = document.getElementById("notif-badge");
+  if (badge) badge.textContent = count > 0 ? `(${count})` : "";
+}
+
+async function openNotification(id, n) {
+  if (!n.read) {
+    try {
+      await updateDoc(doc(db, "notifications", id), { read: true });
+    } catch (err) {
+      console.error(err);
+    }
+  }
+  if (n.announcementId) {
+    window.open("index.html#announcements", "_blank");
+  }
+}
+
+document.getElementById("notif-mark-all-read")?.addEventListener("click", async () => {
+  const btn = document.getElementById("notif-mark-all-read");
+  btn.disabled = true;
+  try {
+    const q = query(
+      collection(db, "notifications"),
+      where("leaderId", "==", currentUser.uid),
+      where("read", "==", false)
+    );
+    const snap = await getDocs(q);
+    await Promise.all(snap.docs.map((d) => updateDoc(doc(db, "notifications", d.id), { read: true })));
+  } catch (err) {
+    console.error("Mark all as read failed:", err);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 /* ---------------------------------------------------------------------- */
 /* Announcements — post to the public homepage feed                        */
