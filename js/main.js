@@ -1184,7 +1184,7 @@ function renderCommentHtml(c, annId, ownUid, likedComments, isReply, repliesHtml
   const nameHtml = leaderSlot
     ? `
       <div class="comment-name-row">
-        <span class="comment-name">${escapeHtml(c.name || leaderSlot.name)}</span>
+        <span class="comment-name">${escapeHtml(leaderSlot.name || c.name || "Visitor")}</span>
         ${verifiedBadge(leaderSlot)}${affiliateBadge(leaderSlot)}
       </div>
       ${leaderSlot.position ? `<span class="comment-role-badge">${escapeHtml(leaderSlot.position)}</span>` : ""}`
