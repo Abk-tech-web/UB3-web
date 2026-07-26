@@ -1833,22 +1833,40 @@ function renderCommentHtml(c, annId, ownUid, likedComments, isReply, repliesHtml
 }
 
 /* ---------------------------------------------------------------------- */
-/* Roadmap progress bar (public — reads settings/roadmap)                  */
-/* A leader sets this from the dashboard; anyone can read it. Hidden       */
-/* entirely until a leader has actually set a value at least once.        */
+/* Roadmap progress bar (public — reads roadmapUpdates, newest first)      */
+/* Leaders post updates from the dashboard, building a history instead of  */
+/* overwriting a single value. The newest one is the live progress bar;   */
+/* everything older is listed underneath. Hidden entirely until at least   */
+/* one update has ever been posted.                                       */
 /* ---------------------------------------------------------------------- */
 const roadmapProgressEl = document.getElementById("roadmap-progress");
 if (roadmapProgressEl) {
   onSnapshot(
-    doc(db, "settings", "roadmap"),
-    (docSnap) => {
-      if (!docSnap.exists()) return;
-      const data = docSnap.data();
-      const pct = Math.max(0, Math.min(100, Number(data.percent) || 0));
+    query(collection(db, "roadmapUpdates"), orderBy("createdAt", "desc")),
+    (snap) => {
+      if (snap.empty) return;
+      const docs = snap.docs.map((d) => d.data());
+      const [current, ...history] = docs;
+      const pct = Math.max(0, Math.min(100, Number(current.percent) || 0));
+
       roadmapProgressEl.style.display = "block";
-      document.getElementById("roadmap-progress-label").textContent = data.label || "Overall progress";
+      document.getElementById("roadmap-progress-label").textContent = current.label || "Overall progress";
       document.getElementById("roadmap-progress-pct").textContent = `${pct}%`;
       document.getElementById("roadmap-progress-fill").style.width = `${pct}%`;
+
+      const historyEl = document.getElementById("roadmap-history");
+      if (historyEl) {
+        historyEl.innerHTML = history
+          .map((r) => {
+            const p = Math.max(0, Math.min(100, Number(r.percent) || 0));
+            return `
+              <div class="roadmap-history-item">
+                <span class="roadmap-history-label">${escapeHtml(r.label || "")}</span>
+                <span class="roadmap-history-pct">${p}%</span>
+              </div>`;
+          })
+          .join("");
+      }
     },
     (err) => console.error("Roadmap progress load failed:", err)
   );

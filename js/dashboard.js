@@ -154,7 +154,7 @@ onAuthStateChanged(auth, async (user) => {
   watchInbox();
   watchMyAnnouncements();
   watchNotifications();
-  loadRoadmapSettings();
+  watchRoadmapUpdates();
 });
 
 document.getElementById("logout-btn")?.addEventListener("click", async () => {
@@ -766,24 +766,12 @@ document.getElementById("security-form")?.addEventListener("submit", async (e) =
 });
 
 /* ---------------------------------------------------------------------- */
-/* Site Settings — Roadmap progress bar (settings/roadmap, shared by all   */
-/* 9 leaders, shown on the public Roadmap section)                         */
+/* Site Settings — Roadmap history (roadmapUpdates/*, shared by all 9      */
+/* leaders). Posting a new update adds it to the top of the history        */
+/* instead of overwriting a single value — every past update stays        */
+/* visible and editable, and any leader can edit or delete any entry.      */
+/* The newest-by-createdAt entry is always what's live on the homepage.    */
 /* ---------------------------------------------------------------------- */
-async function loadRoadmapSettings() {
-  const form = document.getElementById("roadmap-settings-form");
-  if (!form) return;
-  try {
-    const snap = await getDoc(doc(db, "settings", "roadmap"));
-    if (snap.exists()) {
-      const data = snap.data();
-      if (form.label) form.label.value = data.label || "";
-      if (form.percent) form.percent.value = data.percent ?? "";
-    }
-  } catch (err) {
-    console.error("Couldn't load roadmap settings:", err);
-  }
-}
-
 document.getElementById("roadmap-settings-form")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.target;
@@ -793,24 +781,115 @@ document.getElementById("roadmap-settings-form")?.addEventListener("submit", asy
 
   const percent = Math.max(0, Math.min(100, parseInt(data.get("percent"), 10) || 0));
   const label = (data.get("label") || "").trim();
+  if (!label) return;
 
   btn.disabled = true;
-  btn.textContent = "Saving…";
+  btn.textContent = "Posting…";
   try {
-    await setDoc(doc(db, "settings", "roadmap"), {
+    await addDoc(collection(db, "roadmapUpdates"), {
       percent,
       label,
-      updatedBy: currentUser.uid,
-      updatedAt: serverTimestamp(),
+      authorId: currentUser.uid,
+      authorName: currentLeader?.name || "A leader",
+      createdAt: serverTimestamp(),
     });
-    status.textContent = "Roadmap progress updated — now live on the homepage.";
+    form.reset();
+    status.textContent = "Posted — now live on the homepage.";
     status.className = "form-status success";
   } catch (err) {
-    status.textContent = "Couldn't save. Please try again.";
+    status.textContent = "Couldn't post. Please try again.";
     status.className = "form-status error";
     console.error(err);
   } finally {
     btn.disabled = false;
-    btn.textContent = "Save Progress";
+    btn.textContent = "Post Update";
   }
 });
+
+function watchRoadmapUpdates() {
+  const list = document.getElementById("roadmap-history-list");
+  if (!list) return;
+
+  const q = query(collection(db, "roadmapUpdates"), orderBy("createdAt", "desc"));
+
+  onSnapshot(
+    q,
+    (snap) => {
+      if (snap.empty) {
+        list.innerHTML = `<div class="empty-state">No roadmap updates posted yet.</div>`;
+        return;
+      }
+
+      list.innerHTML = "";
+      snap.docs.forEach((docSnap, i) => {
+        const r = docSnap.data();
+        const time = r.createdAt?.toDate ? r.createdAt.toDate().toLocaleString() : "";
+        const item = document.createElement("div");
+        item.className = "ann-item glass";
+        item.innerHTML = `
+          <div class="ann-item-top">
+            <span class="ann-item-title">${escapeHtml(r.label || "")}${i === 0 ? `<span class="ann-pin-tag">LIVE</span>` : ""}</span>
+            <span class="ann-item-time">${time}</span>
+          </div>
+          <div class="ann-item-body js-roadmap-view">${r.percent ?? 0}% overall — posted by ${escapeHtml(r.authorName || "a leader")}</div>
+          <form class="roadmap-edit-form">
+            <div class="field"><label>Status label</label><input type="text" name="label" maxlength="80" value="${escapeHtml(r.label || "")}" required></div>
+            <div class="field"><label>Overall progress (%)</label><input type="number" name="percent" min="0" max="100" step="1" value="${r.percent ?? 0}" required></div>
+            <div class="ann-item-actions">
+              <button type="submit" class="btn btn-primary">Save</button>
+              <button type="button" class="ann-pin-btn js-roadmap-cancel">Cancel</button>
+            </div>
+          </form>
+          <div class="ann-item-actions">
+            <button type="button" class="ann-pin-btn js-roadmap-edit">Edit</button>
+            <button type="button" class="ann-delete-btn js-roadmap-delete">Delete</button>
+          </div>
+        `;
+
+        const editForm = item.querySelector(".roadmap-edit-form");
+        item.querySelector(".js-roadmap-edit").addEventListener("click", () => item.classList.add("editing"));
+        item.querySelector(".js-roadmap-cancel").addEventListener("click", () => item.classList.remove("editing"));
+        editForm.addEventListener("submit", async (evt) => {
+          evt.preventDefault();
+          const fd = new FormData(editForm);
+          const percent = Math.max(0, Math.min(100, parseInt(fd.get("percent"), 10) || 0));
+          const label = (fd.get("label") || "").trim();
+          if (!label) return;
+          const saveBtn = editForm.querySelector("button[type=submit]");
+          saveBtn.disabled = true;
+          try {
+            await updateDoc(doc(db, "roadmapUpdates", docSnap.id), { label, percent });
+            item.classList.remove("editing");
+          } catch (err) {
+            console.error(err);
+            alert("Couldn't save this update. Please try again.");
+          } finally {
+            saveBtn.disabled = false;
+          }
+        });
+        item.querySelector(".js-roadmap-delete").addEventListener("click", async () => {
+          if (!confirm("Delete this roadmap update? This can't be undone.")) return;
+          try {
+            await deleteDoc(doc(db, "roadmapUpdates", docSnap.id));
+          } catch (err) {
+            console.error(err);
+            alert("Couldn't delete this update. Please try again.");
+          }
+        });
+
+        list.appendChild(item);
+      });
+    },
+    (err) => {
+      const detail = err?.message || err?.code || "unknown error";
+      const urlMatch = detail.match(/https:\/\/console\.firebase\.google\.com\S+/);
+      const detailHtml = urlMatch
+        ? detail.slice(0, urlMatch.index) +
+          `<a href="${urlMatch[0]}" target="_blank" rel="noopener" style="color:#7dd3fc;text-decoration:underline;">Tap here to create the required index</a>` +
+          detail.slice(urlMatch.index + urlMatch[0].length)
+        : detail;
+      list.innerHTML = `<div class="empty-state">Couldn't load roadmap history.<br><small style="opacity:.7;word-break:break-word;">(${detailHtml})</small></div>`;
+      console.error(err);
+    }
+  );
+}
