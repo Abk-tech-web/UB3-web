@@ -826,20 +826,49 @@ const REACTION_TYPES = [
   { key: "laugh", emoji: "😂" },
   { key: "angry", emoji: "😡" },
 ];
-const REACTION_EMOJI = { fire: "🔥", clap: "👏", laugh: "😂", angry: "😡" };
+const REACTION_EMOJI = { love: "❤️", fire: "🔥", clap: "👏", laugh: "😂", angry: "😡" };
+// Order the breakdown is checked in — doesn't affect which ones show, only
+// tie-breaking when counts are equal.
+const REACTION_ORDER = ["love", "fire", "clap", "laugh", "angry"];
+
+// Pulls the per-type counts (likeCount is "love", everything else lives in
+// a.reactions) into one plain object so the rest of the code doesn't have
+// to know about that historical split.
+function reactionCounts(a) {
+  return {
+    love: Math.max(0, a?.likeCount || 0),
+    fire: Math.max(0, a?.reactions?.fire || 0),
+    clap: Math.max(0, a?.reactions?.clap || 0),
+    laugh: Math.max(0, a?.reactions?.laugh || 0),
+    angry: Math.max(0, a?.reactions?.angry || 0),
+  };
+}
+
+// Facebook-style breakdown: every distinct reaction type that's actually
+// been used shows its own icon (most-used first, stacked on top), instead
+// of the old bug where the button only ever showed ONE icon — either the
+// current visitor's own reaction, or a generic heart — even when several
+// different reaction types had been left on the post. Returns null when
+// nobody has reacted yet, so the caller can fall back to a plain heart.
+function reactionBreakdownHtml(counts) {
+  const top = REACTION_ORDER.map((key) => ({ key, count: counts[key] || 0 }))
+    .filter((r) => r.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3);
+  if (!top.length) return null;
+  return `<span class="reaction-stack">${top
+    .map((r, i) => `<span class="reaction-stack-icon" style="z-index:${top.length - i}">${REACTION_EMOJI[r.key]}</span>`)
+    .join("")}</span>`;
+}
 
 function reactionButtonHtml(a, id) {
   const current = getMyReaction(id);
-  const total =
-    Math.max(0, a.likeCount || 0) +
-    Math.max(0, a.reactions?.fire || 0) +
-    Math.max(0, a.reactions?.clap || 0) +
-    Math.max(0, a.reactions?.laugh || 0) +
-    Math.max(0, a.reactions?.angry || 0);
-  const iconHtml = current && current !== "love" ? `<span class="reaction-emoji">${REACTION_EMOJI[current]}</span>` : current === "love" ? ICONS.heartFilled : ICONS.heart;
+  const counts = reactionCounts(a);
+  const total = counts.love + counts.fire + counts.clap + counts.laugh + counts.angry;
+  const iconHtml = reactionBreakdownHtml(counts) || ICONS.heart;
 
   return `
-    <button type="button" class="announcement-action-btn js-reaction-main${current ? " liked" : ""}" data-ann-id="${id}" title="Tap to love — hold for more reactions">
+    <button type="button" class="announcement-action-btn js-reaction-main${current ? " liked" : ""}" data-ann-id="${id}" data-counts='${JSON.stringify(counts)}' title="Tap to love — hold for more reactions">
       ${iconHtml}
       <span class="js-reaction-total">${total}</span> <span>${total === 1 ? "reaction" : "reactions"}</span>
     </button>`;
@@ -1193,14 +1222,23 @@ if (announcementsList) {
     }
   }
 
-  function updateReactionButtonUI(btn, newType, delta) {
+  function updateReactionButtonUI(btn, previousType, newType) {
     if (!btn) return;
-    const totalEl = btn.querySelector(".js-reaction-total");
-    const current = parseInt(totalEl?.textContent, 10) || 0;
-    const newTotal = Math.max(0, current + delta);
-    const icon = !newType ? ICONS.heart : newType === "love" ? ICONS.heartFilled : `<span class="reaction-emoji">${REACTION_EMOJI[newType]}</span>`;
+    let counts;
+    try {
+      counts = JSON.parse(btn.dataset.counts || "{}");
+    } catch {
+      counts = {};
+    }
+    counts = { love: 0, fire: 0, clap: 0, laugh: 0, angry: 0, ...counts };
+    if (previousType) counts[previousType] = Math.max(0, (counts[previousType] || 0) - 1);
+    if (newType) counts[newType] = (counts[newType] || 0) + 1;
+    btn.dataset.counts = JSON.stringify(counts);
+
+    const newTotal = counts.love + counts.fire + counts.clap + counts.laugh + counts.angry;
+    const iconHtml = reactionBreakdownHtml(counts) || ICONS.heart;
     btn.classList.toggle("liked", !!newType);
-    btn.innerHTML = `${icon}<span class="js-reaction-total">${newTotal}</span> <span>${newTotal === 1 ? "reaction" : "reactions"}</span>`;
+    btn.innerHTML = `${iconHtml}<span class="js-reaction-total">${newTotal}</span> <span>${newTotal === 1 ? "reaction" : "reactions"}</span>`;
   }
 
   async function setReaction(annId, type, btn) {
@@ -1210,9 +1248,6 @@ if (announcementsList) {
     const previous = getMyReaction(annId);
     const removing = previous === type;
     const newType = removing ? null : type;
-    // Switching between two active types nets to the same total (one off,
-    // one on); going from none to something is +1; removing entirely is -1.
-    const delta = previous && newType ? 0 : newType ? 1 : -1;
 
     // Apply local state + the button's own UI immediately, before either
     // network round trip — not after. Waiting until the writes resolved is
@@ -1220,7 +1255,7 @@ if (announcementsList) {
     // Firestore's onSnapshot can fire (and re-render this button from
     // still-stale localStorage) while those awaits are in flight.
     setMyReactionLocal(annId, newType);
-    updateReactionButtonUI(btn, newType, delta);
+    updateReactionButtonUI(btn, previous, newType);
 
     try {
       if (previous) await removeReactionOfType(annId, previous);
@@ -1243,7 +1278,7 @@ if (announcementsList) {
       console.error("Reaction failed:", err);
       // Roll back the optimistic update so the UI matches reality.
       setMyReactionLocal(annId, previous);
-      updateReactionButtonUI(btn, previous, -delta);
+      updateReactionButtonUI(btn, newType, previous);
     } finally {
       if (btn) btn.dataset.busy = "";
     }
