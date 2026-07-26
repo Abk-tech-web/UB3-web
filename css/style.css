@@ -516,6 +516,17 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
 .js-reaction-main { position: relative; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
 .reaction-emoji { font-size: 17px; line-height: 1; flex-shrink: 0; }
 
+/* -- stacked breakdown of every distinct reaction type on a post, most-  */
+/*    used first — Facebook-style, so a fire + a heart both show up ------ */
+.reaction-stack { display: inline-flex; align-items: center; flex-shrink: 0; }
+.reaction-stack-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 19px; height: 19px; border-radius: 50%; font-size: 12px; line-height: 1;
+  background: var(--surface-strong); border: 1.5px solid var(--bg, #0b0f14);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+}
+.reaction-stack-icon:not(:first-child) { margin-left: -9px; }
+
 /* -- long-press emoji reaction picker ------------------------------------ */
 .reaction-picker {
   position: absolute; bottom: calc(100% + 10px); left: 0; display: flex; gap: 4px;
