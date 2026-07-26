@@ -794,20 +794,26 @@ let searchQuery = "";
 let showBookmarkedOnly = false;
 let deepLinkHandled = false;
 
-function reactionsHtml(a, id) {
-  const my = getMyReactions()[id] || [];
+// Real emoji, not SVG icons — shown in the long-press picker on the heart
+// button, and as small chips under the actions row for any type that has
+// at least one reaction so far.
+const REACTION_TYPES = [
+  { key: "fire", emoji: "🔥" },
+  { key: "clap", emoji: "👏" },
+  { key: "laugh", emoji: "😂" },
+  { key: "angry", emoji: "😡" },
+];
+
+function reactionChipsHtml(a, id) {
+  const my = new Set(getMyReactions()[id] || []);
   const counts = a.reactions || {};
-  return ["fire", "clap"]
-    .map((type) => {
-      const count = Math.max(0, counts[type] || 0);
-      const active = my.includes(type);
-      const icon = type === "fire" ? ICONS.fire : ICONS.clap;
-      return `
-        <button type="button" class="announcement-action-btn js-reaction-btn${active ? " liked" : ""}" data-ann-id="${id}" data-type="${type}">
-          ${icon}<span class="js-reaction-count">${count}</span>
-        </button>`;
-    })
+  const chips = REACTION_TYPES.filter((t) => (counts[t.key] || 0) > 0)
+    .map(
+      (t) =>
+        `<button type="button" class="reaction-chip js-reaction-chip${my.has(t.key) ? " active" : ""}" data-ann-id="${id}" data-type="${t.key}">${t.emoji} <span class="js-reaction-count">${Math.max(0, counts[t.key] || 0)}</span></button>`
+    )
     .join("");
+  return chips ? `<div class="reaction-chips">${chips}</div>` : "";
 }
 
 function pollHtml(a, id) {
@@ -975,11 +981,10 @@ function renderAnnouncementsFeed() {
           ${pollHtml(a, id)}
 
           <div class="announcement-actions">
-            <button type="button" class="announcement-action-btn js-like-btn${liked ? " liked" : ""}" data-ann-id="${id}">
+            <button type="button" class="announcement-action-btn js-like-btn${liked ? " liked" : ""}" data-ann-id="${id}" title="Tap to like — hold for more reactions">
               ${liked ? ICONS.heartFilled : ICONS.heart}
               <span class="js-like-count">${likeCount}</span> <span>${likeCount === 1 ? "like" : "likes"}</span>
             </button>
-            ${reactionsHtml(a, id)}
             <button type="button" class="announcement-action-btn js-comment-toggle${commentsOpen ? " comments-open" : ""}" data-ann-id="${id}">
               ${ICONS.comment}
               <span class="js-comment-count">${commentCount}</span> <span>${commentCount === 1 ? "comment" : "comments"}</span>
@@ -988,6 +993,7 @@ function renderAnnouncementsFeed() {
               ${ICONS.share}<span>Share</span>
             </button>
           </div>
+          ${reactionChipsHtml(a, id)}
 
           <div class="announcement-comments${commentsOpen ? " open" : ""}" data-ann-id="${id}">
             <form class="comment-form js-comment-form${visitorIsAnonymous ? " signed-out" : ""}" data-ann-id="${id}">
@@ -1058,6 +1064,11 @@ if (announcementsList) {
   announcementsList.addEventListener("click", async (e) => {
     const btn = e.target.closest(".js-like-btn");
     if (!btn || btn.dataset.busy === "1") return;
+    if (reactionLongPressFired) {
+      reactionLongPressFired = false;
+      return;
+    }
+
     btn.dataset.busy = "1";
 
     const id = btn.dataset.annId;
@@ -1180,32 +1191,23 @@ if (announcementsList) {
     }, 1800);
   });
 
-  /* -- quick reactions (🔥 fire, 👏 clap) — anonymous-friendly, same       */
-  /*    pattern as the heart like above ---------------------------------- */
-  announcementsList.addEventListener("click", async (e) => {
-    const btn = e.target.closest(".js-reaction-btn");
-    if (!btn || btn.dataset.busy === "1") return;
-    btn.dataset.busy = "1";
+  /* -- quick emoji reactions: long-press the heart for the picker, or tap  */
+  /*    an existing chip — both call the same toggle logic ---------------- */
+  async function toggleReaction(annId, type, btn) {
+    if (btn?.dataset.busy === "1") return;
+    if (btn) btn.dataset.busy = "1";
 
-    const annId = btn.dataset.annId;
-    const type = btn.dataset.type;
     const myReactions = getMyReactions();
     const mine = new Set(myReactions[annId] || []);
     const alreadyActive = mine.has(type);
     const reactRef = doc(db, "announcements", annId, "reactions", `${getDeviceId()}_${type}`);
     const annRef = doc(db, "announcements", annId);
 
-    const currentCount = parseInt(btn.querySelector(".js-reaction-count")?.textContent, 10) || 0;
-    const newCount = Math.max(0, currentCount + (!alreadyActive ? 1 : -1));
-    btn.classList.toggle("liked", !alreadyActive);
-    const icon = type === "fire" ? ICONS.fire : ICONS.clap;
-    btn.innerHTML = `${icon}<span class="js-reaction-count">${newCount}</span>`;
-
     try {
       const docSnap = lastAnnouncementsSnap?.docs.find((d) => d.id === annId);
       const a = docSnap?.data();
-      const current = { fire: 0, clap: 0, ...(a?.reactions || {}) };
-      current[type] = newCount;
+      const current = { fire: 0, clap: 0, laugh: 0, angry: 0, ...(a?.reactions || {}) };
+      current[type] = Math.max(0, (current[type] || 0) + (alreadyActive ? -1 : 1));
       if (alreadyActive) {
         await deleteDoc(reactRef);
         mine.delete(type);
@@ -1216,11 +1218,69 @@ if (announcementsList) {
       await updateDoc(annRef, { reactions: current });
       myReactions[annId] = [...mine];
       saveMyReactions(myReactions);
+      // The write above re-triggers the feed's onSnapshot, which re-renders
+      // the chips with the new counts.
     } catch (err) {
       console.error("Reaction failed:", err);
     } finally {
-      btn.dataset.busy = "";
+      if (btn) btn.dataset.busy = "";
     }
+  }
+
+  let activeReactionPicker = null;
+  let reactionPressTimer = null;
+  let reactionLongPressFired = false;
+
+  function closeReactionPicker() {
+    if (activeReactionPicker) {
+      activeReactionPicker.remove();
+      activeReactionPicker = null;
+    }
+  }
+
+  function openReactionPicker(likeBtn) {
+    closeReactionPicker();
+    const annId = likeBtn.dataset.annId;
+    const mine = new Set(getMyReactions()[annId] || []);
+    const picker = document.createElement("div");
+    picker.className = "reaction-picker";
+    picker.innerHTML = REACTION_TYPES.map(
+      (t) => `<button type="button" class="reaction-picker-btn${mine.has(t.key) ? " active" : ""}" data-type="${t.key}">${t.emoji}</button>`
+    ).join("");
+    picker.addEventListener("click", (e) => {
+      const btn = e.target.closest(".reaction-picker-btn");
+      if (!btn) return;
+      toggleReaction(annId, btn.dataset.type);
+      closeReactionPicker();
+    });
+    likeBtn.appendChild(picker);
+    activeReactionPicker = picker;
+    requestAnimationFrame(() => picker.classList.add("open"));
+  }
+
+  announcementsList.addEventListener("pointerdown", (e) => {
+    const btn = e.target.closest(".js-like-btn");
+    if (!btn) return;
+    reactionLongPressFired = false;
+    reactionPressTimer = setTimeout(() => {
+      reactionLongPressFired = true;
+      openReactionPicker(btn);
+    }, 450);
+  });
+  ["pointerup", "pointerleave", "pointercancel"].forEach((evt) => {
+    announcementsList.addEventListener(evt, () => clearTimeout(reactionPressTimer));
+  });
+  document.addEventListener("click", (e) => {
+    if (activeReactionPicker && !e.target.closest(".reaction-picker") && !e.target.closest(".js-like-btn")) {
+      closeReactionPicker();
+    }
+  });
+
+  /* -- tapping an existing reaction chip toggles it, same as the picker -- */
+  announcementsList.addEventListener("click", (e) => {
+    const chip = e.target.closest(".js-reaction-chip");
+    if (!chip) return;
+    toggleReaction(chip.dataset.annId, chip.dataset.type, chip);
   });
 
   /* -- bookmark a post (local to this browser, no account needed) ------- */
