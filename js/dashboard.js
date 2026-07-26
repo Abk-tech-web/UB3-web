@@ -476,7 +476,10 @@ async function openNotification(id, n) {
     }
   }
   if (n.announcementId) {
-    window.open("index.html#announcements", "_blank");
+    // index.html reads ?post=<id> on load and scrolls straight to that
+    // exact card (with a highlight flash), instead of just landing on the
+    // Announcements section and making them hunt for it.
+    window.open(`index.html?post=${encodeURIComponent(n.announcementId)}#announcements`, "_blank");
   }
 }
 
