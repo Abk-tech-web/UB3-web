@@ -545,7 +545,7 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
 /* -- comment thread ------------------------------------------------------ */
 .announcement-comments { display: none; flex-direction: column; gap: 14px; padding-top: 14px; border-top: 1px solid var(--surface-border); }
 .announcement-comments.open { display: flex; }
-.comment-form { display: flex; flex-direction: column; gap: 8px; }
+.comment-form { display: flex; flex-direction: column; gap: 8px; position: relative; }
 .comment-form textarea {
   width: 100%; background: var(--surface); border: 1px solid var(--surface-border); border-radius: var(--radius-sm);
   padding: 10px 13px; font-size: 13.5px; color: var(--white); font-family: var(--font-body);
@@ -592,6 +592,26 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
   background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 8px; border-radius: 999px;
 }
 .comment-text { font-size: 13.5px; color: var(--silver); line-height: 1.55; white-space: pre-line; word-break: break-word; }
+.comment-mention { color: var(--cyan-glow); font-weight: 600; }
+
+/* -- @mention autocomplete dropdown -------------------------------------- */
+.mention-dropdown {
+  position: absolute; z-index: 30; background: var(--surface-strong);
+  border: 1px solid var(--surface-border-strong); border-radius: var(--radius-sm);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4); overflow: hidden;
+}
+.mention-dropdown-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px;
+  background: none; border: none; cursor: pointer; text-align: left;
+  font-size: 13px; font-weight: 600; color: var(--white);
+}
+.mention-dropdown-item:hover, .mention-dropdown-item:focus { background: var(--surface); }
+.mention-dropdown-avatar {
+  width: 22px; height: 22px; border-radius: 50%; overflow: hidden; flex-shrink: 0;
+  background: var(--surface); display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: var(--silver-dim);
+}
+.mention-dropdown-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .comment-empty { font-size: 13px; color: var(--silver-dim); }
 
 .comment-meta-row { display: flex; align-items: center; gap: 14px; margin-top: 5px; flex-wrap: wrap; }
