@@ -169,23 +169,26 @@ service cloud.firestore {
       allow delete: if request.auth != null && request.auth.uid == resource.data.authorId;
 
       // Anyone (reactions are anonymous, same trust model as likes) may
-      // nudge the reactions map by exactly ±1 in total across fire+clap
-      // per write — same self-healing floor-at-0 pattern as everything
-      // else here, sent as one literal replacement map rather than
-      // per-field increments so it's a single, easy-to-validate diff key.
+      // nudge the reactions map by exactly ±1 in total across all four
+      // types per write — same self-healing floor-at-0 pattern as
+      // everything else here, sent as one literal replacement map rather
+      // than per-field increments so it's a single, easy-to-validate diff
+      // key.
       function isValidReactionUpdate() {
         let diffKeys = request.resource.data.diff(resource.data).affectedKeys();
         let oldR = ('reactions' in resource.data) ? resource.data.reactions : {};
-        let oldFireRaw = ('fire' in oldR) ? oldR.fire : 0;
-        let oldClapRaw = ('clap' in oldR) ? oldR.clap : 0;
-        let oldFire = oldFireRaw < 0 ? 0 : oldFireRaw;
-        let oldClap = oldClapRaw < 0 ? 0 : oldClapRaw;
+        let oldFire = (('fire' in oldR) && oldR.fire > 0) ? oldR.fire : 0;
+        let oldClap = (('clap' in oldR) && oldR.clap > 0) ? oldR.clap : 0;
+        let oldLaugh = (('laugh' in oldR) && oldR.laugh > 0) ? oldR.laugh : 0;
+        let oldAngry = (('angry' in oldR) && oldR.angry > 0) ? oldR.angry : 0;
         let newR = request.resource.data.reactions;
+        let oldTotal = oldFire + oldClap + oldLaugh + oldAngry;
+        let newTotal = newR.fire + newR.clap + newR.laugh + newR.angry;
         return diffKeys.hasOnly(['reactions'])
-            && newR.fire is int && newR.clap is int
-            && newR.fire >= 0 && newR.clap >= 0
-            && (newR.fire + newR.clap) >= (oldFire + oldClap) - 1
-            && (newR.fire + newR.clap) <= (oldFire + oldClap) + 1;
+            && newR.fire is int && newR.clap is int && newR.laugh is int && newR.angry is int
+            && newR.fire >= 0 && newR.clap >= 0 && newR.laugh >= 0 && newR.angry >= 0
+            && newTotal >= oldTotal - 1
+            && newTotal <= oldTotal + 1;
       }
 
       // A poll never has more than 4 options, so this ternary chain covers
@@ -246,15 +249,16 @@ service cloud.firestore {
       }
 
       // ---- announcements/{announcementId}/reactions/{deviceId_type} ----
-      // Quick reactions beyond the heart (🔥 fire, 👏 clap) — same
-      // anonymous, device-based, self-healing pattern as likes above, just
-      // parameterized by type. Doc id is "<deviceId>_<type>" so one device
-      // can hold a fire reaction and a clap reaction at the same time, each
-      // independently created/removed.
+      // Quick emoji reactions on long-pressing the heart (🔥 fire, 👏 clap,
+      // 😂 laugh, 😡 angry) — same anonymous, device-based, self-healing
+      // pattern as likes above, just parameterized by type. Doc id is
+      // "<deviceId>_<type>" so one device can hold several different
+      // reactions on the same post at once, each independently
+      // created/removed.
       match /reactions/{reactionId} {
         allow read: if true;
         allow write: if request.resource.data.keys().hasOnly(['type', 'createdAt'])
-                     && request.resource.data.type in ['fire', 'clap'];
+                     && request.resource.data.type in ['fire', 'clap', 'laugh', 'angry'];
         allow delete: if true;
       }
 
