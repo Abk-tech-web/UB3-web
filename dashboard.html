@@ -62,6 +62,9 @@
   .ann-item.editing .roadmap-edit-form { display: flex; }
   .ann-item.editing .js-roadmap-view,
   .ann-item.editing > .ann-item-actions:last-of-type { display: none; }
+  .visitor-notice { background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.3); color: var(--silver); font-size: 13.5px; padding: 14px 18px; border-radius: var(--radius-sm); margin-bottom: 24px; }
+  .dash-nav-item.locked { opacity: 0.4; cursor: not-allowed; }
+  .dash-nav-item.locked:hover { background: none; }
 </style>
 </head>
 <body>
@@ -87,6 +90,10 @@
   <main class="dash-main">
     <div class="dash-header">
       <h1 id="dash-greeting">Welcome back</h1>
+    </div>
+
+    <div class="visitor-notice" id="visitor-notice" style="display:none;">
+      Only UB3 leaders have full access to the Leadership Portal. Visitors can only use the notification bar for recent activity updates.
     </div>
 
     <!-- OVERVIEW -->

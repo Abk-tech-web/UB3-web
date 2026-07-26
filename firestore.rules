@@ -10,11 +10,17 @@ service cloud.firestore {
     // tries to sign up). It can only ever be created at 1, or incremented
     // by exactly 1 at a time, and can never exceed MAX_LEADER_ACCOUNTS
     // below — this is what makes the 9-account cap race-safe: two people
-    // signing up at the same instant can't both succeed past 9.
+    // signing up at the same instant can't both succeed past 9. Restricted
+    // to the 'password' sign-in provider so a visitor who only ever signs
+    // in with Google (to comment on the public site) can't touch this
+    // even to grief it, let alone use it to open up a 10th leader slot.
     match /meta/stats {
       allow read: if true;
-      allow create: if request.auth != null && request.resource.data.leaderCount == 1;
+      allow create: if request.auth != null
+                    && request.auth.token.firebase.sign_in_provider == 'password'
+                    && request.resource.data.leaderCount == 1;
       allow update: if request.auth != null
+                    && request.auth.token.firebase.sign_in_provider == 'password'
                     && request.resource.data.leaderCount == resource.data.leaderCount + 1
                     && request.resource.data.leaderCount <= 9;
       allow delete: if false;
@@ -22,20 +28,31 @@ service cloud.firestore {
 
     // ---- leaders/{uid} -----------------------------------------------
     // Anyone can read leader profiles (shown on the public site).
-    // Only the signed-in leader who owns the document can edit it.
-    // Creation has NO identity/email check — signup is open to anyone —
-    // but is capped at 9 total accounts by checking the meta/stats
-    // counter above. js/auth.js creates this document and bumps the
-    // counter together in one transaction, so this rule and the
-    // meta/stats rule together are what actually enforce the cap
-    // server-side (the check in auth.js is just a friendlier first pass).
+    // Only the signed-in leader who owns the document can edit it, and
+    // only if they signed in with the 'password' provider — i.e. through
+    // the leader signup/login flow in js/auth.js. This is what actually
+    // enforces "only the 9 UB3 leaders get a portal profile": a visitor
+    // who signs in with Google purely to comment on the public site can
+    // never create OR update a leaders/{uid} doc, no matter what runs
+    // client-side, even if they open the browser console and try to write
+    // one directly — this rule is the real, unbypassable gate.
+    // Creation has NO identity/email check beyond that — signup is open to
+    // anyone who reaches the password-based flow — but is capped at 9
+    // total accounts by checking the meta/stats counter above. js/auth.js
+    // creates this document and bumps the counter together in one
+    // transaction, so this rule and the meta/stats rule together are what
+    // actually enforce the cap server-side (the check in auth.js is just a
+    // friendlier first pass).
     match /leaders/{leaderId} {
       allow read: if true;
       allow create: if request.auth != null
                     && request.auth.uid == leaderId
+                    && request.auth.token.firebase.sign_in_provider == 'password'
                     && (!exists(/databases/$(database)/documents/meta/stats)
                         || get(/databases/$(database)/documents/meta/stats).data.leaderCount < 9);
-      allow update: if request.auth != null && request.auth.uid == leaderId;
+      allow update: if request.auth != null
+                    && request.auth.uid == leaderId
+                    && request.auth.token.firebase.sign_in_provider == 'password';
       allow delete: if false;
     }
 
