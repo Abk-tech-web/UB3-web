@@ -131,12 +131,73 @@ service cloud.firestore {
                     // Firestore's 1MiB per-document limit.
                     && (!('imageUrl' in request.resource.data)
                         || (request.resource.data.imageUrl is string
-                            && request.resource.data.imageUrl.size() <= 900000));
+                            && request.resource.data.imageUrl.size() <= 900000))
+                    // Optional topic tag, shown as a filterable chip.
+                    && (!('category' in request.resource.data)
+                        || (request.resource.data.category is string
+                            && request.resource.data.category.size() <= 40))
+                    // Optional poll: 2-4 fixed options, votes start at all
+                    // zero — isValidPollVoteUpdate (below) is the only way
+                    // those numbers can ever move afterward.
+                    && (!('poll' in request.resource.data)
+                        || (request.resource.data.poll.question is string
+                            && request.resource.data.poll.question.size() > 0
+                            && request.resource.data.poll.question.size() <= 200
+                            && request.resource.data.poll.options is list
+                            && request.resource.data.poll.options.size() >= 2
+                            && request.resource.data.poll.options.size() <= 4
+                            && request.resource.data.poll.votes is list
+                            && request.resource.data.poll.votes.size() == request.resource.data.poll.options.size()
+                            && pollVotesSum(request.resource.data.poll.votes) == 0));
       allow update: if (request.auth != null
                     && request.auth.uid == resource.data.authorId
                     && request.resource.data.authorId == resource.data.authorId)
-                    || isValidCounterUpdate();
+                    || isValidCounterUpdate()
+                    || isValidPollVoteUpdate();
       allow delete: if request.auth != null && request.auth.uid == resource.data.authorId;
+
+      // A poll never has more than 4 options, so this ternary chain covers
+      // every valid size without needing a loop (rules has none).
+      function pollVotesSum(list) {
+        return list.size() == 2 ? list[0] + list[1]
+             : list.size() == 3 ? list[0] + list[1] + list[2]
+             : list[0] + list[1] + list[2] + list[3];
+      }
+
+      // Any signed-in (non-anonymous) visitor may cast exactly one vote per
+      // write: the poll's question/options are immutable once posted, and
+      // the votes list may only change by exactly +1 in total across all
+      // options (which option got the vote is trusted to the client, same
+      // trust model as everything else here — there's no real stake in a
+      // community sentiment poll).
+      function isValidPollVoteUpdate() {
+        let diffKeys = request.resource.data.diff(resource.data).affectedKeys();
+        return ('poll' in resource.data)
+            && request.auth != null
+            && request.auth.token.firebase.sign_in_provider != 'anonymous'
+            && diffKeys.hasOnly(['poll'])
+            && resource.data.poll.question == request.resource.data.poll.question
+            && resource.data.poll.options == request.resource.data.poll.options
+            && request.resource.data.poll.votes is list
+            && request.resource.data.poll.votes.size() == resource.data.poll.votes.size()
+            && pollVotesSum(request.resource.data.poll.votes) == pollVotesSum(resource.data.poll.votes) + 1;
+      }
+
+      // ---- announcements/{announcementId}/pollVotes/{uid} ---------------
+      // One doc per voter (doc id = their own uid), so — like comments —
+      // this is a real, unspoofable one-vote cap, not just a device guess.
+      // A vote is final: no update/delete, so nobody can vote, see the
+      // results, then switch to whichever option is winning.
+      match /pollVotes/{uid} {
+        allow read: if true;
+        allow create: if request.auth != null
+                      && request.auth.uid == uid
+                      && request.auth.token.firebase.sign_in_provider != 'anonymous'
+                      && request.resource.data.keys().hasAll(['optionIndex', 'createdAt'])
+                      && request.resource.data.optionIndex is int
+                      && request.resource.data.optionIndex >= 0;
+        allow update, delete: if false;
+      }
 
       // ---- announcements/{announcementId}/likes/{deviceId} -------------
       // One doc per visitor device (id generated client-side and stored in

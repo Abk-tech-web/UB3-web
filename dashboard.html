@@ -158,6 +158,31 @@
             </div>
           </div>
         </div>
+        <div class="field">
+          <label>Category</label>
+          <select name="category">
+            <option value="Announcement" selected>Announcement</option>
+            <option value="Update">Update</option>
+            <option value="Opportunity">Opportunity</option>
+            <option value="Research">Research</option>
+            <option value="Community">Community</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="checkbox" id="announcement-poll-toggle" style="width:16px; height:16px;"> Include a poll (optional)
+          </label>
+          <div id="announcement-poll-builder" style="display:none; margin-top:10px;">
+            <input type="text" id="poll-question" placeholder="Ask a question…" maxlength="200" style="margin-bottom:10px;">
+            <div id="poll-options-list" style="display:flex; flex-direction:column; gap:8px;">
+              <input type="text" class="poll-option-input" placeholder="Option 1" maxlength="80">
+              <input type="text" class="poll-option-input" placeholder="Option 2" maxlength="80">
+            </div>
+            <button type="button" id="poll-add-option" class="ann-photo-remove-btn" style="color:var(--cyan-glow); margin-top:8px;">+ Add option</button>
+          </div>
+        </div>
+
         <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; color:var(--silver); margin-bottom:18px; cursor:pointer;">
           <input type="checkbox" name="pinned" style="width:16px; height:16px;"> Pin to the top of the feed
         </label>
