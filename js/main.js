@@ -1193,16 +1193,40 @@ if (announcementsList) {
     }
   }
 
+  function updateReactionButtonUI(btn, newType, delta) {
+    if (!btn) return;
+    const totalEl = btn.querySelector(".js-reaction-total");
+    const current = parseInt(totalEl?.textContent, 10) || 0;
+    const newTotal = Math.max(0, current + delta);
+    const icon = !newType ? ICONS.heart : newType === "love" ? ICONS.heartFilled : `<span class="reaction-emoji">${REACTION_EMOJI[newType]}</span>`;
+    btn.classList.toggle("liked", !!newType);
+    btn.innerHTML = `${icon}<span class="js-reaction-total">${newTotal}</span> <span>${newTotal === 1 ? "reaction" : "reactions"}</span>`;
+  }
+
   async function setReaction(annId, type, btn) {
     if (btn?.dataset.busy === "1") return;
     if (btn) btn.dataset.busy = "1";
-    const current = getMyReaction(annId);
-    const removing = current === type;
+
+    const previous = getMyReaction(annId);
+    const removing = previous === type;
+    const newType = removing ? null : type;
+    // Switching between two active types nets to the same total (one off,
+    // one on); going from none to something is +1; removing entirely is -1.
+    const delta = previous && newType ? 0 : newType ? 1 : -1;
+
+    // Apply local state + the button's own UI immediately, before either
+    // network round trip — not after. Waiting until the writes resolved is
+    // what caused the delay/"doesn't look checked until I refresh" bug:
+    // Firestore's onSnapshot can fire (and re-render this button from
+    // still-stale localStorage) while those awaits are in flight.
+    setMyReactionLocal(annId, newType);
+    updateReactionButtonUI(btn, newType, delta);
+
     try {
-      if (current) await removeReactionOfType(annId, current);
-      if (!removing) {
-        await addReactionOfType(annId, type);
-        if (type === "love") {
+      if (previous) await removeReactionOfType(annId, previous);
+      if (newType) {
+        await addReactionOfType(annId, newType);
+        if (newType === "love") {
           const meta = announcementMeta.get(annId);
           notifyLeader({
             leaderId: meta?.authorId,
@@ -1212,11 +1236,14 @@ if (announcementsList) {
           });
         }
       }
-      setMyReactionLocal(annId, removing ? null : type);
-      // The write(s) above re-trigger the feed's onSnapshot, which
-      // re-renders this button with the new icon/total.
+      // The write(s) above also re-trigger the feed's onSnapshot shortly
+      // after, which re-renders this card from the server-confirmed state —
+      // by then localStorage already agrees, so there's no flicker back.
     } catch (err) {
       console.error("Reaction failed:", err);
+      // Roll back the optimistic update so the UI matches reality.
+      setMyReactionLocal(annId, previous);
+      updateReactionButtonUI(btn, previous, -delta);
     } finally {
       if (btn) btn.dataset.busy = "";
     }
@@ -1243,9 +1270,9 @@ if (announcementsList) {
       (t) => `<button type="button" class="reaction-picker-btn${current === t.key ? " active" : ""}" data-type="${t.key}">${t.emoji}</button>`
     ).join("");
     picker.addEventListener("click", (e) => {
-      const btn = e.target.closest(".reaction-picker-btn");
-      if (!btn) return;
-      setReaction(annId, btn.dataset.type);
+      const pickerBtn = e.target.closest(".reaction-picker-btn");
+      if (!pickerBtn) return;
+      setReaction(annId, pickerBtn.dataset.type, mainBtn);
       closeReactionPicker();
     });
     mainBtn.appendChild(picker);
