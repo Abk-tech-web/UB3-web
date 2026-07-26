@@ -26,4 +26,9 @@ export const ICONS = {
   share: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="M8.3 10.7l7.4-4.4M8.3 13.3l7.4 4.4"/></svg>`,
   poll: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 20V10M12 20V4M19 20v-6"/></svg>`,
   check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg>`,
+  fire: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c1 3-3 4-3 7.5A3.5 3.5 0 0 0 12 13a3.5 3.5 0 0 0 3-1.7c1.2 1 2 2.6 2 4.2 0 3-2.2 5.5-5 5.5s-6-2.3-6-6c0-4 2.5-5 2.5-8.5C8.5 4.8 10 3 12 2z"/></svg>`,
+  clap: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.5 3a1.4 1.4 0 0 1 1.4 1.4v5.4l.6-.5V2.9a1.4 1.4 0 1 1 2.8 0v6.1l.6-.4V4.4a1.4 1.4 0 1 1 2.8 0v5l.5-.2a1.4 1.4 0 0 1 1.9 1.9l-2.4 5.7a5.6 5.6 0 0 1-5.2 3.4h-1a5.6 5.6 0 0 1-4.6-2.4L3.2 13a1.4 1.4 0 0 1 2.2-1.7l1.7 2V4.4A1.4 1.4 0 0 1 8.5 3z"/></svg>`,
+  bookmark: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3.5h12v17l-6-4-6 4v-17z"/></svg>`,
+  bookmarkFilled: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3.5h12v17l-6-4-6 4v-17z"/></svg>`,
+  search: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.8-4.8"/></svg>`,
 };

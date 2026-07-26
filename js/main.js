@@ -758,13 +758,57 @@ function saveVotedPolls(obj) {
   localStorage.setItem("ub3_poll_votes", JSON.stringify(obj));
 }
 
+function getMyReactions() {
+  try {
+    return JSON.parse(localStorage.getItem("ub3_my_reactions") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveMyReactions(obj) {
+  localStorage.setItem("ub3_my_reactions", JSON.stringify(obj));
+}
+
+// Bookmarks are saved locally to this browser only — no account needed,
+// but that also means they won't follow a visitor to a different device.
+function getBookmarks() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem("ub3_bookmarks") || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveBookmarks(set) {
+  localStorage.setItem("ub3_bookmarks", JSON.stringify([...set]));
+}
+
 // Cached from the last successful feed read, and the currently-selected
 // category pill — filtering by category re-renders from this cache
 // instead of re-querying Firestore. A post's deep link (?post=<id>) only
 // ever gets scrolled-to and highlighted once per page load.
 let lastAnnouncementsSnap = null;
 let activeCategoryFilter = "All";
+let searchQuery = "";
+let showBookmarkedOnly = false;
 let deepLinkHandled = false;
+
+function reactionsHtml(a, id) {
+  const my = getMyReactions()[id] || [];
+  const counts = a.reactions || {};
+  return ["fire", "clap"]
+    .map((type) => {
+      const count = Math.max(0, counts[type] || 0);
+      const active = my.includes(type);
+      const icon = type === "fire" ? ICONS.fire : ICONS.clap;
+      return `
+        <button type="button" class="announcement-action-btn js-reaction-btn${active ? " liked" : ""}" data-ann-id="${id}" data-type="${type}">
+          ${icon}<span class="js-reaction-count">${count}</span>
+        </button>`;
+    })
+    .join("");
+}
 
 function pollHtml(a, id) {
   if (!a.poll || !Array.isArray(a.poll.options)) return "";
@@ -822,26 +866,39 @@ function renderFilterPills() {
     const cat = d.data().category;
     if (cat) categories.add(cat);
   });
-  if (categories.size === 0) {
-    container.innerHTML = "";
-    return;
-  }
-  const cats = ["All", ...Array.from(categories).sort()];
-  container.innerHTML = cats
+  const cats = categories.size > 0 ? ["All", ...Array.from(categories).sort()] : [];
+  const pillsHtml = cats
     .map(
       (cat) =>
         `<button type="button" class="filter-pill${activeCategoryFilter === cat ? " active" : ""}" data-cat="${escapeHtml(cat)}">${escapeHtml(cat)}</button>`
     )
     .join("");
+  const savedPillHtml = `<button type="button" class="filter-pill filter-pill-saved${showBookmarkedOnly ? " active" : ""}" id="filter-saved-toggle">${ICONS.bookmark} Saved</button>`;
+  container.innerHTML = pillsHtml + savedPillHtml;
 }
 
 document.getElementById("announcement-filters")?.addEventListener("click", (e) => {
-  const btn = e.target.closest(".filter-pill");
-  if (!btn) return;
-  activeCategoryFilter = btn.dataset.cat;
-  renderFilterPills();
+  const catBtn = e.target.closest(".filter-pill[data-cat]");
+  if (catBtn) {
+    activeCategoryFilter = catBtn.dataset.cat;
+    renderFilterPills();
+    renderAnnouncementsFeed();
+    return;
+  }
+  if (e.target.closest("#filter-saved-toggle")) {
+    showBookmarkedOnly = !showBookmarkedOnly;
+    renderFilterPills();
+    renderAnnouncementsFeed();
+  }
+});
+
+document.getElementById("announcement-search")?.addEventListener("input", (e) => {
+  searchQuery = e.target.value.trim().toLowerCase();
   renderAnnouncementsFeed();
 });
+
+const searchIconEl = document.querySelector(".announcement-search-icon");
+if (searchIconEl) searchIconEl.innerHTML = ICONS.search;
 
 function renderAnnouncementsFeed() {
   if (!lastAnnouncementsSnap) return;
@@ -851,15 +908,31 @@ function renderAnnouncementsFeed() {
       ? lastAnnouncementsSnap.docs
       : lastAnnouncementsSnap.docs.filter((d) => (d.data().category || "") === activeCategoryFilter);
 
-  if (docs.length === 0) {
-    announcementsList.innerHTML = `<div class="announcements-empty glass">No "${escapeHtml(activeCategoryFilter)}" posts yet.</div>`;
+  const bookmarks = getBookmarks();
+  const filteredDocs = docs.filter((d) => {
+    if (showBookmarkedOnly && !bookmarks.has(d.id)) return false;
+    if (searchQuery) {
+      const data = d.data();
+      const haystack = `${data.title || ""} ${data.body || ""}`.toLowerCase();
+      if (!haystack.includes(searchQuery)) return false;
+    }
+    return true;
+  });
+
+  if (filteredDocs.length === 0) {
+    const reason = showBookmarkedOnly
+      ? "You haven't saved any posts yet."
+      : searchQuery
+      ? `No posts match "${escapeHtml(searchQuery)}".`
+      : `No "${escapeHtml(activeCategoryFilter)}" posts yet.`;
+    announcementsList.innerHTML = `<div class="announcements-empty glass">${reason}</div>`;
     return;
   }
 
   const likedPosts = getLikedPosts();
   const BODY_PREVIEW_LEN = 340;
 
-  announcementsList.innerHTML = docs
+  announcementsList.innerHTML = filteredDocs
     .map((docSnap, idx) => {
       const id = docSnap.id;
       const a = docSnap.data();
@@ -871,6 +944,7 @@ function renderAnnouncementsFeed() {
       const bodyText = a.body || "";
       const needsTruncate = bodyText.length > BODY_PREVIEW_LEN;
       const commentsOpen = openCommentThreads.has(id);
+      const bookmarked = bookmarks.has(id);
 
       return `
         <article class="announcement-card glass reveal${a.pinned ? " pinned" : ""}" data-ann-id="${id}" style="transition-delay:${Math.min(idx, 6) * 0.04}s">
@@ -887,6 +961,9 @@ function renderAnnouncementsFeed() {
               </div>
             </div>
             <div class="announcement-top-badges">
+              <button type="button" class="announcement-bookmark-btn js-bookmark-btn${bookmarked ? " active" : ""}" data-ann-id="${id}" title="${bookmarked ? "Remove bookmark" : "Save for later"}">
+                ${bookmarked ? ICONS.bookmarkFilled : ICONS.bookmark}
+              </button>
               ${a.pinned ? `<span class="announcement-pin-badge">${ICONS.pin}Pinned</span>` : ""}
               ${a.category ? `<span class="announcement-tag">${escapeHtml(a.category)}</span>` : ""}
             </div>
@@ -902,6 +979,7 @@ function renderAnnouncementsFeed() {
               ${liked ? ICONS.heartFilled : ICONS.heart}
               <span class="js-like-count">${likeCount}</span> <span>${likeCount === 1 ? "like" : "likes"}</span>
             </button>
+            ${reactionsHtml(a, id)}
             <button type="button" class="announcement-action-btn js-comment-toggle${commentsOpen ? " comments-open" : ""}" data-ann-id="${id}">
               ${ICONS.comment}
               <span class="js-comment-count">${commentCount}</span> <span>${commentCount === 1 ? "comment" : "comments"}</span>
@@ -1100,6 +1178,68 @@ if (announcementsList) {
     setTimeout(() => {
       btn.innerHTML = originalHtml;
     }, 1800);
+  });
+
+  /* -- quick reactions (🔥 fire, 👏 clap) — anonymous-friendly, same       */
+  /*    pattern as the heart like above ---------------------------------- */
+  announcementsList.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".js-reaction-btn");
+    if (!btn || btn.dataset.busy === "1") return;
+    btn.dataset.busy = "1";
+
+    const annId = btn.dataset.annId;
+    const type = btn.dataset.type;
+    const myReactions = getMyReactions();
+    const mine = new Set(myReactions[annId] || []);
+    const alreadyActive = mine.has(type);
+    const reactRef = doc(db, "announcements", annId, "reactions", `${getDeviceId()}_${type}`);
+    const annRef = doc(db, "announcements", annId);
+
+    const currentCount = parseInt(btn.querySelector(".js-reaction-count")?.textContent, 10) || 0;
+    const newCount = Math.max(0, currentCount + (!alreadyActive ? 1 : -1));
+    btn.classList.toggle("liked", !alreadyActive);
+    const icon = type === "fire" ? ICONS.fire : ICONS.clap;
+    btn.innerHTML = `${icon}<span class="js-reaction-count">${newCount}</span>`;
+
+    try {
+      const docSnap = lastAnnouncementsSnap?.docs.find((d) => d.id === annId);
+      const a = docSnap?.data();
+      const current = { fire: 0, clap: 0, ...(a?.reactions || {}) };
+      current[type] = newCount;
+      if (alreadyActive) {
+        await deleteDoc(reactRef);
+        mine.delete(type);
+      } else {
+        await setDoc(reactRef, { type, createdAt: serverTimestamp() });
+        mine.add(type);
+      }
+      await updateDoc(annRef, { reactions: current });
+      myReactions[annId] = [...mine];
+      saveMyReactions(myReactions);
+    } catch (err) {
+      console.error("Reaction failed:", err);
+    } finally {
+      btn.dataset.busy = "";
+    }
+  });
+
+  /* -- bookmark a post (local to this browser, no account needed) ------- */
+  announcementsList.addEventListener("click", (e) => {
+    const btn = e.target.closest(".js-bookmark-btn");
+    if (!btn) return;
+    const annId = btn.dataset.annId;
+    const bookmarks = getBookmarks();
+    const bookmarked = bookmarks.has(annId);
+    if (bookmarked) {
+      bookmarks.delete(annId);
+    } else {
+      bookmarks.add(annId);
+    }
+    saveBookmarks(bookmarks);
+    btn.classList.toggle("active", !bookmarked);
+    btn.innerHTML = !bookmarked ? ICONS.bookmarkFilled : ICONS.bookmark;
+    btn.title = !bookmarked ? "Remove bookmark" : "Save for later";
+    if (showBookmarkedOnly) renderAnnouncementsFeed();
   });
 
   /* -- toggle comment thread --------------------------------------------- */
@@ -1422,4 +1562,26 @@ function renderCommentHtml(c, annId, ownUid, likedComments, isReply, repliesHtml
           <div class="comment-replies">${repliesHtml}</div>` : ""}
       </div>
     </div>`;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Roadmap progress bar (public — reads settings/roadmap)                  */
+/* A leader sets this from the dashboard; anyone can read it. Hidden       */
+/* entirely until a leader has actually set a value at least once.        */
+/* ---------------------------------------------------------------------- */
+const roadmapProgressEl = document.getElementById("roadmap-progress");
+if (roadmapProgressEl) {
+  onSnapshot(
+    doc(db, "settings", "roadmap"),
+    (docSnap) => {
+      if (!docSnap.exists()) return;
+      const data = docSnap.data();
+      const pct = Math.max(0, Math.min(100, Number(data.percent) || 0));
+      roadmapProgressEl.style.display = "block";
+      document.getElementById("roadmap-progress-label").textContent = data.label || "Overall progress";
+      document.getElementById("roadmap-progress-pct").textContent = `${pct}%`;
+      document.getElementById("roadmap-progress-fill").style.width = `${pct}%`;
+    },
+    (err) => console.error("Roadmap progress load failed:", err)
+  );
 }

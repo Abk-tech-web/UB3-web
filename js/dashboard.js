@@ -154,6 +154,7 @@ onAuthStateChanged(auth, async (user) => {
   watchInbox();
   watchMyAnnouncements();
   watchNotifications();
+  loadRoadmapSettings();
 });
 
 document.getElementById("logout-btn")?.addEventListener("click", async () => {
@@ -760,5 +761,55 @@ document.getElementById("security-form")?.addEventListener("submit", async (e) =
   } finally {
     btn.disabled = false;
     btn.textContent = "Save Security Question";
+  }
+});
+
+/* ---------------------------------------------------------------------- */
+/* Site Settings — Roadmap progress bar (settings/roadmap, shared by all   */
+/* 9 leaders, shown on the public Roadmap section)                         */
+/* ---------------------------------------------------------------------- */
+async function loadRoadmapSettings() {
+  const form = document.getElementById("roadmap-settings-form");
+  if (!form) return;
+  try {
+    const snap = await getDoc(doc(db, "settings", "roadmap"));
+    if (snap.exists()) {
+      const data = snap.data();
+      if (form.label) form.label.value = data.label || "";
+      if (form.percent) form.percent.value = data.percent ?? "";
+    }
+  } catch (err) {
+    console.error("Couldn't load roadmap settings:", err);
+  }
+}
+
+document.getElementById("roadmap-settings-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const status = document.getElementById("roadmap-settings-status");
+  const btn = form.querySelector("button[type=submit]");
+  const data = new FormData(form);
+
+  const percent = Math.max(0, Math.min(100, parseInt(data.get("percent"), 10) || 0));
+  const label = (data.get("label") || "").trim();
+
+  btn.disabled = true;
+  btn.textContent = "Saving…";
+  try {
+    await setDoc(doc(db, "settings", "roadmap"), {
+      percent,
+      label,
+      updatedBy: currentUser.uid,
+      updatedAt: serverTimestamp(),
+    });
+    status.textContent = "Roadmap progress updated — now live on the homepage.";
+    status.className = "form-status success";
+  } catch (err) {
+    status.textContent = "Couldn't save. Please try again.";
+    status.className = "form-status error";
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Save Progress";
   }
 });
