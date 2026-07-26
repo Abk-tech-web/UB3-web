@@ -329,6 +329,12 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
    ROADMAP
    ========================================================================== */
 .roadmap { position: relative; }
+.roadmap-progress { max-width: 620px; margin: 0 0 40px; padding: 20px 24px; background: var(--surface); border: 1px solid var(--surface-border-strong); border-radius: var(--radius-md); }
+.roadmap-progress-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.roadmap-progress-label { font-size: 14px; font-weight: 700; color: var(--white); }
+.roadmap-progress-pct { font-size: 14px; font-weight: 700; color: var(--cyan-glow); font-family: var(--font-mono); }
+.roadmap-progress-track { height: 8px; border-radius: 999px; background: var(--surface-strong); overflow: hidden; }
+.roadmap-progress-fill { height: 100%; border-radius: 999px; background: var(--grad-primary); transition: width 0.6s var(--ease); }
 .roadmap-track { position: relative; padding-left: 34px; }
 .roadmap-track::before { content: ""; position: absolute; left: 6px; top: 6px; bottom: 6px; width: 1px; background: linear-gradient(var(--blue-electric), transparent); }
 .roadmap-item { position: relative; padding-bottom: 42px; }
@@ -407,7 +413,16 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
 /* ==========================================================================
    ANNOUNCEMENTS
    ========================================================================== */
-.announcement-filters { display: flex; flex-wrap: wrap; gap: 8px; max-width: 800px; margin: 0 auto 22px; }
+.announcement-toolbar { max-width: 800px; margin: 0 auto 22px; display: flex; flex-direction: column; gap: 14px; }
+.announcement-search { position: relative; max-width: 420px; }
+.announcement-search-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--silver-dim); pointer-events: none; }
+.announcement-search-icon svg { width: 100%; height: 100%; }
+.announcement-search input {
+  width: 100%; background: var(--surface); border: 1px solid var(--surface-border-strong); border-radius: 999px;
+  padding: 10px 16px 10px 38px; font-size: 13.5px; color: var(--white); font-family: var(--font-body);
+}
+.announcement-search input:focus { outline: none; border-color: var(--cyan-glow); background: var(--surface-strong); }
+.announcement-filters { display: flex; flex-wrap: wrap; gap: 8px; }
 .filter-pill {
   background: var(--surface); border: 1px solid var(--surface-border-strong); color: var(--silver);
   padding: 7px 16px; border-radius: 999px; font-size: 13px; font-weight: 600; cursor: pointer;
@@ -415,6 +430,15 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
 }
 .filter-pill:hover { color: var(--white); border-color: var(--surface-border-strong); }
 .filter-pill.active { background: var(--grad-primary); border-color: transparent; color: #fff; }
+.filter-pill-saved { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.filter-pill-saved svg { width: 13px; height: 13px; }
+.announcement-bookmark-btn {
+  background: none; border: none; padding: 4px; cursor: pointer; color: var(--silver-dim); flex-shrink: 0;
+  transition: color 0.2s var(--ease);
+}
+.announcement-bookmark-btn svg { width: 19px; height: 19px; display: block; }
+.announcement-bookmark-btn:hover { color: var(--white); }
+.announcement-bookmark-btn.active { color: var(--cyan-glow); }
 .announcements-list { display: flex; flex-direction: column; gap: 22px; max-width: 800px; margin: 0 auto; }
 .announcement-card { padding: 34px 36px; display: flex; flex-direction: column; gap: 16px; transition: transform 0.4s var(--ease), border-color 0.4s var(--ease), box-shadow 0.4s var(--ease); }
 .announcement-card:hover { transform: translateY(-3px); border-color: var(--surface-border-strong); }
