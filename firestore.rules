@@ -41,13 +41,48 @@ service cloud.firestore {
 
     // ---- settings/{settingId} -------------------------------------------
     // Small shared, site-wide values editable from any leader's dashboard
-    // (not tied to one author) — e.g. settings/roadmap holds the overall
-    // progress bar shown on the public Roadmap section. Anyone can read;
-    // only a signed-in, registered leader can write.
+    // (not tied to one author). Anyone can read; only a signed-in,
+    // registered leader can write. (Formerly held settings/roadmap, now
+    // superseded by the roadmapUpdates history below — kept in case
+    // anything else still uses this path.)
     match /settings/{settingId} {
       allow read: if true;
       allow write: if request.auth != null
                    && exists(/databases/$(database)/documents/leaders/$(request.auth.uid));
+    }
+
+    // ---- roadmapUpdates/{updateId} --------------------------------------
+    // A running history of roadmap progress updates, shared across all 9
+    // leaders — replaces the old single settings/roadmap value so every
+    // past update stays around instead of being overwritten. Anyone can
+    // read; any signed-in, registered leader can post a new update, or
+    // edit/delete ANY entry (not just their own) since this is shared team
+    // content, same trust model as the shared settings/ values above. The
+    // public site always treats the newest-by-createdAt entry as the live
+    // progress bar.
+    match /roadmapUpdates/{updateId} {
+      allow read: if true;
+      allow create: if request.auth != null
+                    && exists(/databases/$(database)/documents/leaders/$(request.auth.uid))
+                    && request.resource.data.keys().hasAll(['label', 'percent', 'authorId', 'authorName', 'createdAt'])
+                    && request.resource.data.authorId == request.auth.uid
+                    && request.resource.data.label is string
+                    && request.resource.data.label.size() > 0
+                    && request.resource.data.label.size() <= 80
+                    && request.resource.data.percent is int
+                    && request.resource.data.percent >= 0
+                    && request.resource.data.percent <= 100;
+      allow update: if request.auth != null
+                    && exists(/databases/$(database)/documents/leaders/$(request.auth.uid))
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['label', 'percent'])
+                    && request.resource.data.label is string
+                    && request.resource.data.label.size() > 0
+                    && request.resource.data.label.size() <= 80
+                    && request.resource.data.percent is int
+                    && request.resource.data.percent >= 0
+                    && request.resource.data.percent <= 100;
+      allow delete: if request.auth != null
+                    && exists(/databases/$(database)/documents/leaders/$(request.auth.uid));
     }
 
     // ---- messages/{messageId} -----------------------------------------

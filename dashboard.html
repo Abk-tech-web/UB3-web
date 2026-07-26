@@ -58,6 +58,10 @@
   .ann-pin-btn:hover { color: var(--cyan-glow); border-color: var(--cyan-glow); }
   .ann-delete-btn { background: none; border: 1px solid var(--surface-border); color: var(--silver-dim); font-size: 12.5px; padding: 6px 12px; border-radius: var(--radius-sm); cursor: pointer; }
   .ann-delete-btn:hover { color: #f87171; border-color: #f87171; }
+  .roadmap-edit-form { display: none; flex-direction: column; }
+  .ann-item.editing .roadmap-edit-form { display: flex; }
+  .ann-item.editing .js-roadmap-view,
+  .ann-item.editing > .ann-item-actions:last-of-type { display: none; }
 </style>
 </head>
 <body>
@@ -213,12 +217,18 @@
     <section class="dash-panel" data-panel="settings">
       <form class="dash-card glass" id="roadmap-settings-form">
         <h3>Roadmap Progress</h3>
-        <p style="color:var(--silver-dim); font-size:13.5px; margin-top:-10px; margin-bottom:18px;">Shared across all 9 leaders — this sets the overall progress bar shown on the public Roadmap section. Whoever saves last is what's live.</p>
-        <div class="field"><label>Status label</label><input type="text" name="label" maxlength="80" placeholder="e.g. Phase 02 — Opportunity"></div>
-        <div class="field"><label>Overall progress (%)</label><input type="number" name="percent" min="0" max="100" step="1" placeholder="0–100"></div>
-        <button type="submit" class="btn btn-primary">Save Progress</button>
+        <p style="color:var(--silver-dim); font-size:13.5px; margin-top:-10px; margin-bottom:18px;">Shared across all 9 leaders. Posting a new update makes it the current progress bar on the public Roadmap section — every past update stays below, and any leader can edit or delete any entry.</p>
+        <div class="field"><label>Status label</label><input type="text" name="label" maxlength="80" placeholder="e.g. Phase 02 — Opportunity" required></div>
+        <div class="field"><label>Overall progress (%)</label><input type="number" name="percent" min="0" max="100" step="1" placeholder="0–100" required></div>
+        <button type="submit" class="btn btn-primary">Post Update</button>
         <p class="form-status" id="roadmap-settings-status"></p>
       </form>
+
+      <div class="dash-card glass">
+        <h3>Roadmap History</h3>
+        <p style="color:var(--silver-dim); font-size:13.5px; margin-top:-10px; margin-bottom:18px;">Newest first. The top entry is what's currently live on the homepage.</p>
+        <div class="msg-list" id="roadmap-history-list"><div class="empty-state">Loading roadmap history…</div></div>
+      </div>
     </section>
 
     <!-- INBOX -->
