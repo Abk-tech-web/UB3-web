@@ -379,6 +379,7 @@ const NOTIF_LABELS = {
   post_comment: "Commented on your post",
   comment_like: "Liked your comment",
   comment_reply: "Replied to your comment",
+  mention: "Mentioned you in a comment",
 };
 
 function watchNotifications() {

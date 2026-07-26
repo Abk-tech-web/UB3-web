@@ -678,6 +678,42 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Every leader whose roster name can currently be @-mentioned, longest
+// name first — so "@Abdulkadeer" is never partially matched by a shorter
+// name that happens to be one of its prefixes.
+function mentionCandidates() {
+  return LEADERS.filter((l) => l.name).sort((a, b) => b.name.length - a.name.length);
+}
+
+// Finds every leader @-mentioned in a comment/reply body (case-insensitive,
+// whole-word), deduped by leader id. Used right after a comment is posted
+// to decide who to notify.
+function findMentionedLeaders(text) {
+  if (!text) return [];
+  const found = new Map();
+  mentionCandidates().forEach((l) => {
+    const re = new RegExp(`@${escapeRegex(l.name)}\\b`, "i");
+    if (re.test(text)) found.set(l.id, l);
+  });
+  return [...found.values()];
+}
+
+// Highlights every recognized @mention in an already-escapeHtml'd comment
+// body, same idea as the blue @mentions on Facebook/X — operates on the
+// escaped text, so it's safe even though it's building HTML.
+function renderMentions(escapedText) {
+  let out = escapedText;
+  mentionCandidates().forEach((l) => {
+    const re = new RegExp(`@${escapeRegex(l.name)}\\b`, "gi");
+    out = out.replace(re, (m) => `<span class="comment-mention">${m}</span>`);
+  });
+  return out;
+}
+
 /* -- anonymous visitor identity (device-scoped, no login) ---------------- */
 function getDeviceId() {
   let id = localStorage.getItem("ub3_device_id");
@@ -1439,6 +1475,22 @@ if (announcementsList) {
         });
       }
 
+      // Anyone @-mentioned in the comment gets their own "mentioned you"
+      // notification, in addition to whatever post/reply notification
+      // already fired above — mirrors the two separate notifications
+      // Facebook/X send for "commented" vs "tagged you".
+      findMentionedLeaders(bodyVal).forEach((leader) => {
+        if (!leader.uid || leader.uid === uid) return; // no account yet, or mentioned themselves
+        notifyLeader({
+          leaderId: leader.uid,
+          type: "mention",
+          actorName: nameVal,
+          body: `${nameVal} mentioned you in a comment: "${excerpt}"`,
+          announcementId: id,
+          commentId: parentId || null,
+        });
+      });
+
       form.body.value = "";
       status.textContent = "";
       if (parentId) form.classList.remove("open");
@@ -1451,7 +1503,84 @@ if (announcementsList) {
     }
   });
 
-  /* -- edit / delete / save / cancel a comment (event delegation) ------ */
+  /* -- @mention autocomplete: typing "@" in a comment/reply box shows a  */
+  /*    live dropdown of leader names to tap, so you don't have to get     */
+  /*    their exact name right for the tag/notification to work ---------- */
+  let activeMentionDropdown = null;
+
+  function closeMentionDropdown() {
+    activeMentionDropdown?.remove();
+    activeMentionDropdown = null;
+  }
+
+  // Returns the partial name being typed after the nearest "@" before the
+  // cursor (e.g. "Abu" for "hey @Abu"), or null if the cursor isn't
+  // currently inside a mention.
+  function currentMentionQuery(textarea) {
+    const upToCursor = textarea.value.slice(0, textarea.selectionStart);
+    const match = upToCursor.match(/@([A-Za-z]*)$/);
+    return match ? match[1] : null;
+  }
+
+  function insertMention(textarea, name) {
+    const pos = textarea.selectionStart;
+    const before = textarea.value.slice(0, pos).replace(/@([A-Za-z]*)$/, `@${name} `);
+    const after = textarea.value.slice(pos);
+    textarea.value = before + after;
+    textarea.focus();
+    textarea.setSelectionRange(before.length, before.length);
+    closeMentionDropdown();
+  }
+
+  function openMentionDropdown(textarea, query) {
+    const matches = mentionCandidates()
+      .filter((l) => l.name.toLowerCase().startsWith(query.toLowerCase()))
+      .slice(0, 5);
+    closeMentionDropdown();
+    if (!matches.length) return;
+
+    const dropdown = document.createElement("div");
+    dropdown.className = "mention-dropdown";
+    dropdown.innerHTML = matches
+      .map(
+        (l) => `
+        <button type="button" class="mention-dropdown-item" data-name="${escapeHtml(l.name)}">
+          <span class="mention-dropdown-avatar">${l.photo ? `<img src="${l.photo}" alt="">` : initials(l.name)}</span>
+          <span>${escapeHtml(l.name)}</span>
+        </button>`
+      )
+      .join("");
+    dropdown.style.top = `${textarea.offsetTop + textarea.offsetHeight + 4}px`;
+    dropdown.style.left = `${textarea.offsetLeft}px`;
+    dropdown.style.width = `${textarea.offsetWidth}px`;
+    textarea.parentElement.appendChild(dropdown);
+    activeMentionDropdown = dropdown;
+
+    // mousedown (not click) so this fires before the textarea's blur
+    // event would otherwise close the dropdown first.
+    dropdown.addEventListener("mousedown", (e) => {
+      const btn = e.target.closest(".mention-dropdown-item");
+      if (!btn) return;
+      e.preventDefault();
+      insertMention(textarea, btn.dataset.name);
+    });
+  }
+
+  announcementsList.addEventListener("input", (e) => {
+    const textarea = e.target.closest(".js-comment-form textarea[name='body']");
+    if (!textarea) return;
+    const query = currentMentionQuery(textarea);
+    if (query === null) closeMentionDropdown();
+    else openMentionDropdown(textarea, query);
+  });
+
+  announcementsList.addEventListener(
+    "blur",
+    (e) => {
+      if (e.target.closest(".js-comment-form textarea[name='body']")) closeMentionDropdown();
+    },
+    true
+  );
   announcementsList.addEventListener("click", async (e) => {
     const editBtn = e.target.closest(".js-comment-edit");
     const deleteBtn = e.target.closest(".js-comment-delete");
@@ -1659,7 +1788,7 @@ function renderCommentHtml(c, annId, ownUid, likedComments, isReply, repliesHtml
       <div class="comment-avatar${c.photoURL || leaderSlot?.photo ? " has-photo" : ""}">${avatarHtml}</div>
       <div class="comment-body-wrap">
         ${nameHtml}
-        <div class="comment-text js-comment-text">${escapeHtml(c.body || "")}</div>
+        <div class="comment-text js-comment-text">${renderMentions(escapeHtml(c.body || ""))}</div>
         <textarea class="js-comment-edit-input" maxlength="1000">${escapeHtml(c.body || "")}</textarea>
 
         <div class="comment-meta-row">
