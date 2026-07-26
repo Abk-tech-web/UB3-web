@@ -513,9 +513,10 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
 .announcement-action-btn.liked { color: #fb7185; }
 .announcement-action-btn.liked svg { color: #fb7185; }
 .announcement-action-btn.comments-open { color: var(--cyan-glow); }
-.js-like-btn { position: relative; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.js-reaction-main { position: relative; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.reaction-emoji { font-size: 17px; line-height: 1; flex-shrink: 0; }
 
-/* -- long-press emoji reaction picker + chips ---------------------------- */
+/* -- long-press emoji reaction picker ------------------------------------ */
 .reaction-picker {
   position: absolute; bottom: calc(100% + 10px); left: 0; display: flex; gap: 4px;
   background: var(--surface-strong); border: 1px solid var(--surface-border-strong); border-radius: 999px;
@@ -529,14 +530,6 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
 }
 .reaction-picker-btn:hover { transform: scale(1.25); background: var(--surface); }
 .reaction-picker-btn.active { background: rgba(56, 189, 248, 0.15); }
-.reaction-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -4px; }
-.reaction-chip {
-  display: inline-flex; align-items: center; gap: 5px; background: var(--surface); border: 1px solid var(--surface-border-strong);
-  color: var(--silver); font-size: 12.5px; font-weight: 600; padding: 4px 10px; border-radius: 999px; cursor: pointer;
-  transition: border-color 0.2s var(--ease), background 0.2s var(--ease);
-}
-.reaction-chip:hover { border-color: var(--surface-border-strong); background: var(--surface-strong); }
-.reaction-chip.active { border-color: var(--cyan-glow); background: rgba(56, 189, 248, 0.1); color: var(--white); }
 
 /* -- comment thread ------------------------------------------------------ */
 .announcement-comments { display: none; flex-direction: column; gap: 14px; padding-top: 14px; border-top: 1px solid var(--surface-border); }
