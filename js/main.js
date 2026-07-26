@@ -746,6 +746,193 @@ async function notifyLeader({ leaderId, type, actorName, body, announcementId, c
   }
 }
 
+function getVotedPolls() {
+  try {
+    return JSON.parse(localStorage.getItem("ub3_poll_votes") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveVotedPolls(obj) {
+  localStorage.setItem("ub3_poll_votes", JSON.stringify(obj));
+}
+
+// Cached from the last successful feed read, and the currently-selected
+// category pill — filtering by category re-renders from this cache
+// instead of re-querying Firestore. A post's deep link (?post=<id>) only
+// ever gets scrolled-to and highlighted once per page load.
+let lastAnnouncementsSnap = null;
+let activeCategoryFilter = "All";
+let deepLinkHandled = false;
+
+function pollHtml(a, id) {
+  if (!a.poll || !Array.isArray(a.poll.options)) return "";
+  const votedPolls = getVotedPolls();
+  const votedIndex = Object.prototype.hasOwnProperty.call(votedPolls, id) ? votedPolls[id] : null;
+  const hasVoted = votedIndex !== null;
+  const votes = a.poll.votes || [];
+  const totalVotes = votes.reduce((sum, v) => sum + (v || 0), 0);
+
+  const optionsHtml = a.poll.options
+    .map((opt, i) => {
+      if (hasVoted) {
+        const count = votes[i] || 0;
+        const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
+        const chosen = votedIndex === i;
+        return `
+          <div class="poll-option-result${chosen ? " chosen" : ""}">
+            <div class="poll-option-bar" style="width:${pct}%"></div>
+            <span class="poll-option-label">${chosen ? ICONS.check : ""}${escapeHtml(opt)}</span>
+            <span class="poll-option-pct">${pct}%</span>
+          </div>`;
+      }
+      if (visitorIsAnonymous) {
+        return `<button type="button" class="poll-option-btn js-poll-signin" data-ann-id="${id}">${escapeHtml(opt)}</button>`;
+      }
+      return `<button type="button" class="poll-option-btn js-poll-vote" data-ann-id="${id}" data-option-index="${i}">${escapeHtml(opt)}</button>`;
+    })
+    .join("");
+
+  return `
+    <div class="announcement-poll">
+      <div class="poll-question">${ICONS.poll}<span>${escapeHtml(a.poll.question)}</span></div>
+      <div class="poll-options">${optionsHtml}</div>
+      <div class="poll-meta">${totalVotes} vote${totalVotes === 1 ? "" : "s"}${visitorIsAnonymous && !hasVoted ? " · Sign in with Google to vote" : ""}</div>
+    </div>`;
+}
+
+function handleDeepLink() {
+  if (deepLinkHandled) return;
+  const postId = new URLSearchParams(location.search).get("post");
+  if (!postId) return;
+  const card = announcementsList.querySelector(`.announcement-card[data-ann-id="${postId}"]`);
+  if (!card) return;
+  deepLinkHandled = true;
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+  card.classList.add("highlight-flash");
+  setTimeout(() => card.classList.remove("highlight-flash"), 2500);
+}
+
+function renderFilterPills() {
+  const container = document.getElementById("announcement-filters");
+  if (!container || !lastAnnouncementsSnap) return;
+  const categories = new Set();
+  lastAnnouncementsSnap.docs.forEach((d) => {
+    const cat = d.data().category;
+    if (cat) categories.add(cat);
+  });
+  if (categories.size === 0) {
+    container.innerHTML = "";
+    return;
+  }
+  const cats = ["All", ...Array.from(categories).sort()];
+  container.innerHTML = cats
+    .map(
+      (cat) =>
+        `<button type="button" class="filter-pill${activeCategoryFilter === cat ? " active" : ""}" data-cat="${escapeHtml(cat)}">${escapeHtml(cat)}</button>`
+    )
+    .join("");
+}
+
+document.getElementById("announcement-filters")?.addEventListener("click", (e) => {
+  const btn = e.target.closest(".filter-pill");
+  if (!btn) return;
+  activeCategoryFilter = btn.dataset.cat;
+  renderFilterPills();
+  renderAnnouncementsFeed();
+});
+
+function renderAnnouncementsFeed() {
+  if (!lastAnnouncementsSnap) return;
+
+  const docs =
+    activeCategoryFilter === "All"
+      ? lastAnnouncementsSnap.docs
+      : lastAnnouncementsSnap.docs.filter((d) => (d.data().category || "") === activeCategoryFilter);
+
+  if (docs.length === 0) {
+    announcementsList.innerHTML = `<div class="announcements-empty glass">No "${escapeHtml(activeCategoryFilter)}" posts yet.</div>`;
+    return;
+  }
+
+  const likedPosts = getLikedPosts();
+  const BODY_PREVIEW_LEN = 340;
+
+  announcementsList.innerHTML = docs
+    .map((docSnap, idx) => {
+      const id = docSnap.id;
+      const a = docSnap.data();
+      announcementMeta.set(id, { authorId: a.authorId, title: a.title || "" });
+      const time = a.createdAt?.toDate ? timeAgo(a.createdAt.toDate()) : "";
+      const liked = likedPosts.has(id);
+      const likeCount = Math.max(0, a.likeCount || 0);
+      const commentCount = Math.max(0, a.commentCount || 0);
+      const bodyText = a.body || "";
+      const needsTruncate = bodyText.length > BODY_PREVIEW_LEN;
+      const commentsOpen = openCommentThreads.has(id);
+
+      return `
+        <article class="announcement-card glass reveal${a.pinned ? " pinned" : ""}" data-ann-id="${id}" style="transition-delay:${Math.min(idx, 6) * 0.04}s">
+          <div class="announcement-top">
+            <div class="announcement-author">
+              <div class="announcement-avatar">${announcementAvatar(a)}</div>
+              <div class="announcement-who">
+                <div class="announcement-name-row">
+                  <span class="announcement-name">${escapeHtml(a.authorName || "UB3")}</span>
+                  ${authorBadgeHtml(a)}
+                  ${a.authorPosition ? `<span class="announcement-role-badge">${escapeHtml(a.authorPosition)}</span>` : ""}
+                </div>
+                <div class="announcement-meta">Posted in Announcements<span class="dot">&middot;</span>${time}</div>
+              </div>
+            </div>
+            <div class="announcement-top-badges">
+              ${a.pinned ? `<span class="announcement-pin-badge">${ICONS.pin}Pinned</span>` : ""}
+              ${a.category ? `<span class="announcement-tag">${escapeHtml(a.category)}</span>` : ""}
+            </div>
+          </div>
+          <h3 class="announcement-title">${escapeHtml(a.title)}</h3>
+          <p class="announcement-body${needsTruncate ? " clamped js-ann-body" : ""}">${escapeHtml(bodyText)}</p>
+          ${needsTruncate ? `<button type="button" class="announcement-see-more js-see-more">See more</button>` : ""}
+          ${a.imageUrl ? `<img class="announcement-photo" src="${a.imageUrl}" alt="" loading="lazy">` : ""}
+          ${pollHtml(a, id)}
+
+          <div class="announcement-actions">
+            <button type="button" class="announcement-action-btn js-like-btn${liked ? " liked" : ""}" data-ann-id="${id}">
+              ${liked ? ICONS.heartFilled : ICONS.heart}
+              <span class="js-like-count">${likeCount}</span> <span>${likeCount === 1 ? "like" : "likes"}</span>
+            </button>
+            <button type="button" class="announcement-action-btn js-comment-toggle${commentsOpen ? " comments-open" : ""}" data-ann-id="${id}">
+              ${ICONS.comment}
+              <span class="js-comment-count">${commentCount}</span> <span>${commentCount === 1 ? "comment" : "comments"}</span>
+            </button>
+            <button type="button" class="announcement-action-btn js-share-btn" data-ann-id="${id}">
+              ${ICONS.share}<span>Share</span>
+            </button>
+          </div>
+
+          <div class="announcement-comments${commentsOpen ? " open" : ""}" data-ann-id="${id}">
+            <form class="comment-form js-comment-form${visitorIsAnonymous ? " signed-out" : ""}" data-ann-id="${id}">
+              <div class="comment-auth-status">${commentAuthStatusHtml()}</div>
+              <textarea name="body" rows="2" maxlength="1000" placeholder="Write a comment…" required></textarea>
+              <button type="submit" class="comment-form-submit">${ICONS.send} Post</button>
+              <p class="comment-form-status"></p>
+            </form>
+            <div class="comment-list js-comment-list"><div class="comment-empty">Loading comments…</div></div>
+          </div>
+        </article>`;
+    })
+    .join("");
+
+  announcementsList.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+
+  // Restore any open comment threads (re-fetch their comments since the
+  // whole list HTML was just replaced by this snapshot).
+  openCommentThreads.forEach((id) => loadComments(id));
+
+  handleDeepLink();
+}
+
 if (announcementsList) {
   await liveLeadersReady.catch(() => {});
   await authReady.catch(() => {});
@@ -763,73 +950,9 @@ if (announcementsList) {
         announcementsList.innerHTML = `<div class="announcements-empty glass">No announcements yet — check back soon for updates from the UB3 team.</div>`;
         return;
       }
-
-      const likedPosts = getLikedPosts();
-      const BODY_PREVIEW_LEN = 340;
-
-      announcementsList.innerHTML = snap.docs
-        .map((docSnap, idx) => {
-          const id = docSnap.id;
-          const a = docSnap.data();
-          announcementMeta.set(id, { authorId: a.authorId, title: a.title || "" });
-          const time = a.createdAt?.toDate ? timeAgo(a.createdAt.toDate()) : "";
-          const liked = likedPosts.has(id);
-          const likeCount = Math.max(0, a.likeCount || 0);
-          const commentCount = Math.max(0, a.commentCount || 0);
-          const bodyText = a.body || "";
-          const needsTruncate = bodyText.length > BODY_PREVIEW_LEN;
-          const commentsOpen = openCommentThreads.has(id);
-
-          return `
-            <article class="announcement-card glass reveal${a.pinned ? " pinned" : ""}" data-ann-id="${id}" style="transition-delay:${Math.min(idx, 6) * 0.04}s">
-              <div class="announcement-top">
-                <div class="announcement-author">
-                  <div class="announcement-avatar">${announcementAvatar(a)}</div>
-                  <div class="announcement-who">
-                    <div class="announcement-name-row">
-                      <span class="announcement-name">${escapeHtml(a.authorName || "UB3")}</span>
-                      ${authorBadgeHtml(a)}
-                      ${a.authorPosition ? `<span class="announcement-role-badge">${escapeHtml(a.authorPosition)}</span>` : ""}
-                    </div>
-                    <div class="announcement-meta">Posted in Announcements<span class="dot">&middot;</span>${time}</div>
-                  </div>
-                </div>
-                ${a.pinned ? `<span class="announcement-pin-badge">${ICONS.pin}Pinned</span>` : ""}
-              </div>
-              <h3 class="announcement-title">${escapeHtml(a.title)}</h3>
-              <p class="announcement-body${needsTruncate ? " clamped js-ann-body" : ""}">${escapeHtml(bodyText)}</p>
-              ${needsTruncate ? `<button type="button" class="announcement-see-more js-see-more">See more</button>` : ""}
-              ${a.imageUrl ? `<img class="announcement-photo" src="${a.imageUrl}" alt="" loading="lazy">` : ""}
-
-              <div class="announcement-actions">
-                <button type="button" class="announcement-action-btn js-like-btn${liked ? " liked" : ""}" data-ann-id="${id}">
-                  ${liked ? ICONS.heartFilled : ICONS.heart}
-                  <span class="js-like-count">${likeCount}</span> <span>${likeCount === 1 ? "like" : "likes"}</span>
-                </button>
-                <button type="button" class="announcement-action-btn js-comment-toggle${commentsOpen ? " comments-open" : ""}" data-ann-id="${id}">
-                  ${ICONS.comment}
-                  <span class="js-comment-count">${commentCount}</span> <span>${commentCount === 1 ? "comment" : "comments"}</span>
-                </button>
-              </div>
-
-              <div class="announcement-comments${commentsOpen ? " open" : ""}" data-ann-id="${id}">
-                <form class="comment-form js-comment-form${visitorIsAnonymous ? " signed-out" : ""}" data-ann-id="${id}">
-                  <div class="comment-auth-status">${commentAuthStatusHtml()}</div>
-                  <textarea name="body" rows="2" maxlength="1000" placeholder="Write a comment…" required></textarea>
-                  <button type="submit" class="comment-form-submit">${ICONS.send} Post</button>
-                  <p class="comment-form-status"></p>
-                </form>
-                <div class="comment-list js-comment-list"><div class="comment-empty">Loading comments…</div></div>
-              </div>
-            </article>`;
-        })
-        .join("");
-
-      announcementsList.querySelectorAll(".reveal").forEach((el) => io.observe(el));
-
-      // Restore any open comment threads (re-fetch their comments since the
-      // whole list HTML was just replaced by this snapshot).
-      openCommentThreads.forEach((id) => loadComments(id));
+      lastAnnouncementsSnap = snap;
+      renderFilterPills();
+      renderAnnouncementsFeed();
     },
     (err) => {
       const detail = err?.message || err?.code || "unknown error";
@@ -899,6 +1022,84 @@ if (announcementsList) {
     } finally {
       btn.dataset.busy = "";
     }
+  });
+
+  /* -- vote on a poll ------------------------------------------------------ */
+  announcementsList.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".js-poll-vote");
+    if (!btn || btn.dataset.busy === "1") return;
+    btn.dataset.busy = "1";
+
+    const annId = btn.dataset.annId;
+    const optionIndex = parseInt(btn.dataset.optionIndex, 10);
+    const uid = visitorUid || (await authReady);
+    if (!uid || visitorIsAnonymous) {
+      btn.dataset.busy = "";
+      return;
+    }
+
+    try {
+      const docSnap = lastAnnouncementsSnap?.docs.find((d) => d.id === annId);
+      const a = docSnap?.data();
+      if (!a?.poll) throw new Error("Poll not found");
+      const newVotes = a.poll.votes.slice();
+      newVotes[optionIndex] = (newVotes[optionIndex] || 0) + 1;
+
+      await setDoc(doc(db, "announcements", annId, "pollVotes", uid), {
+        optionIndex,
+        createdAt: serverTimestamp(),
+      });
+      await updateDoc(doc(db, "announcements", annId), {
+        poll: { question: a.poll.question, options: a.poll.options, votes: newVotes },
+      });
+
+      const voted = getVotedPolls();
+      voted[annId] = optionIndex;
+      saveVotedPolls(voted);
+      // The write above re-triggers the feed's onSnapshot, which re-renders
+      // this card showing the results view.
+    } catch (err) {
+      console.error("Poll vote failed:", err);
+    } finally {
+      btn.dataset.busy = "";
+    }
+  });
+
+  /* -- tapping a poll option while signed out prompts Google sign-in ------- */
+  announcementsList.addEventListener("click", (e) => {
+    const btn = e.target.closest(".js-poll-signin");
+    if (!btn) return;
+    googleSignIn();
+  });
+
+  /* -- share a post ---------------------------------------------------- */
+  announcementsList.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".js-share-btn");
+    if (!btn) return;
+    const annId = btn.dataset.annId;
+    const meta = announcementMeta.get(annId);
+    const url = `${location.origin}${location.pathname}?post=${annId}#announcements`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: meta?.title || "UB3 Announcement", url });
+      } catch {
+        // User cancelled the native share sheet — nothing to do.
+      }
+      return;
+    }
+
+    const originalHtml = btn.innerHTML;
+    try {
+      await navigator.clipboard.writeText(url);
+      btn.innerHTML = `${ICONS.check}<span>Link copied</span>`;
+    } catch {
+      window.prompt("Copy this link:", url);
+      return;
+    }
+    setTimeout(() => {
+      btn.innerHTML = originalHtml;
+    }, 1800);
   });
 
   /* -- toggle comment thread --------------------------------------------- */

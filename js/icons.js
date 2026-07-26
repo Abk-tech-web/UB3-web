@@ -23,4 +23,7 @@ export const ICONS = {
   comment: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4.5h16v11.5H9l-4.5 4V4.5z"/></svg>`,
   send: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 12l17.5-8-6 8 6 8L3 12zm2.9 0l10.2 0 3-4-13.2 4zm0 0l13.2 4-3-4-10.2 0z"/></svg>`,
   badge: `<svg viewBox="0 0 22 22" fill="currentColor"><circle cx="11" cy="11" r="11"/><path d="M6.6 11.3l2.8 2.8 6-6.6" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  share: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="M8.3 10.7l7.4-4.4M8.3 13.3l7.4 4.4"/></svg>`,
+  poll: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 20V10M12 20V4M19 20v-6"/></svg>`,
+  check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg>`,
 };

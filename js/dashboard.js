@@ -530,6 +530,24 @@ document.getElementById("announcement-photo-remove")?.addEventListener("click", 
   removeBtn.style.display = "none";
 });
 
+document.getElementById("announcement-poll-toggle")?.addEventListener("change", (e) => {
+  const builder = document.getElementById("announcement-poll-builder");
+  if (builder) builder.style.display = e.target.checked ? "block" : "none";
+});
+
+document.getElementById("poll-add-option")?.addEventListener("click", () => {
+  const list = document.getElementById("poll-options-list");
+  if (!list) return;
+  const count = list.querySelectorAll(".poll-option-input").length;
+  if (count >= 4) return;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "poll-option-input";
+  input.maxLength = 80;
+  input.placeholder = `Option ${count + 1}`;
+  list.appendChild(input);
+});
+
 document.getElementById("announcement-form")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.target;
@@ -544,10 +562,24 @@ document.getElementById("announcement-form")?.addEventListener("submit", async (
     if (pendingAnnPhotoError) {
       throw new Error(pendingAnnPhotoError);
     }
+
+    const category = data.get("category") || "Announcement";
+    let poll = null;
+    if (document.getElementById("announcement-poll-toggle")?.checked) {
+      const question = (document.getElementById("poll-question")?.value || "").trim();
+      const options = Array.from(document.querySelectorAll(".poll-option-input"))
+        .map((inp) => inp.value.trim())
+        .filter(Boolean);
+      if (!question) throw new Error("Add a question for your poll, or uncheck 'Include a poll'.");
+      if (options.length < 2) throw new Error("A poll needs at least 2 options.");
+      poll = { question, options, votes: options.map(() => 0) };
+    }
+
     const payload = {
       title: (data.get("title") || "").trim(),
       body: (data.get("body") || "").trim(),
       pinned: data.get("pinned") === "on",
+      category,
       authorId: currentUser.uid,
       authorName: currentLeader.name || "UB3 Leader",
       authorPosition: currentLeader.position || "",
@@ -557,6 +589,7 @@ document.getElementById("announcement-form")?.addEventListener("submit", async (
       commentCount: 0,
     };
     if (pendingAnnPhotoDataURL) payload.imageUrl = pendingAnnPhotoDataURL;
+    if (poll) payload.poll = poll;
     await addDoc(collection(db, "announcements"), payload);
     status.textContent = "Announcement posted — it's now live on the homepage.";
     status.className = "form-status success";
@@ -569,6 +602,14 @@ document.getElementById("announcement-form")?.addEventListener("submit", async (
     if (preview) preview.innerHTML = "No photo";
     if (removeBtn) removeBtn.style.display = "none";
     if (photoStatus) photoStatus.textContent = "";
+    const pollBuilder = document.getElementById("announcement-poll-builder");
+    if (pollBuilder) pollBuilder.style.display = "none";
+    const pollOptionsList = document.getElementById("poll-options-list");
+    if (pollOptionsList) {
+      pollOptionsList.innerHTML = `
+        <input type="text" class="poll-option-input" placeholder="Option 1" maxlength="80">
+        <input type="text" class="poll-option-input" placeholder="Option 2" maxlength="80">`;
+    }
   } catch (err) {
     status.textContent = err?.message || "Couldn't post your announcement. Please try again.";
     status.className = "form-status error";
