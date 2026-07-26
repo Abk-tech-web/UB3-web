@@ -688,17 +688,51 @@ function getDeviceId() {
   return id;
 }
 
-function getLikedPosts() {
+// A visitor's reaction on a post is now Facebook-style: exactly one type
+// at a time (love/fire/clap/laugh/angry), stored under one key instead of
+// the old separate "liked posts" set + "my reactions" map. This migrates
+// anyone's existing data once so their prior likes/reactions aren't lost.
+function getMyReaction(annId) {
   try {
-    return new Set(JSON.parse(localStorage.getItem("ub3_liked_posts") || "[]"));
+    return (JSON.parse(localStorage.getItem("ub3_my_reaction") || "{}"))[annId] || null;
   } catch {
-    return new Set();
+    return null;
   }
 }
 
-function saveLikedPosts(set) {
-  localStorage.setItem("ub3_liked_posts", JSON.stringify([...set]));
+function setMyReactionLocal(annId, type) {
+  let map = {};
+  try {
+    map = JSON.parse(localStorage.getItem("ub3_my_reaction") || "{}");
+  } catch {
+    map = {};
+  }
+  if (type) map[annId] = type;
+  else delete map[annId];
+  localStorage.setItem("ub3_my_reaction", JSON.stringify(map));
 }
+
+(function migrateLegacyReactions() {
+  if (localStorage.getItem("ub3_my_reaction_migrated")) return;
+  const unified = {};
+  try {
+    JSON.parse(localStorage.getItem("ub3_liked_posts") || "[]").forEach((id) => {
+      unified[id] = "love";
+    });
+  } catch {
+    /* ignore */
+  }
+  try {
+    const legacy = JSON.parse(localStorage.getItem("ub3_my_reactions") || "{}");
+    Object.entries(legacy).forEach(([id, types]) => {
+      if (!unified[id] && Array.isArray(types) && types.length) unified[id] = types[0];
+    });
+  } catch {
+    /* ignore */
+  }
+  localStorage.setItem("ub3_my_reaction", JSON.stringify(unified));
+  localStorage.setItem("ub3_my_reaction_migrated", "1");
+})();
 
 function getLikedComments() {
   try {
@@ -758,18 +792,6 @@ function saveVotedPolls(obj) {
   localStorage.setItem("ub3_poll_votes", JSON.stringify(obj));
 }
 
-function getMyReactions() {
-  try {
-    return JSON.parse(localStorage.getItem("ub3_my_reactions") || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function saveMyReactions(obj) {
-  localStorage.setItem("ub3_my_reactions", JSON.stringify(obj));
-}
-
 // Bookmarks are saved locally to this browser only — no account needed,
 // but that also means they won't follow a visitor to a different device.
 function getBookmarks() {
@@ -794,26 +816,33 @@ let searchQuery = "";
 let showBookmarkedOnly = false;
 let deepLinkHandled = false;
 
-// Real emoji, not SVG icons — shown in the long-press picker on the heart
-// button, and as small chips under the actions row for any type that has
-// at least one reaction so far.
+// Real emoji for every type but "love" (which keeps using the heart
+// SVG/outline, same as before) — shown in the long-press picker, Facebook
+// style: exactly one of these is ever active per person per post.
 const REACTION_TYPES = [
+  { key: "love", emoji: "❤️" },
   { key: "fire", emoji: "🔥" },
   { key: "clap", emoji: "👏" },
   { key: "laugh", emoji: "😂" },
   { key: "angry", emoji: "😡" },
 ];
+const REACTION_EMOJI = { fire: "🔥", clap: "👏", laugh: "😂", angry: "😡" };
 
-function reactionChipsHtml(a, id) {
-  const my = new Set(getMyReactions()[id] || []);
-  const counts = a.reactions || {};
-  const chips = REACTION_TYPES.filter((t) => (counts[t.key] || 0) > 0)
-    .map(
-      (t) =>
-        `<button type="button" class="reaction-chip js-reaction-chip${my.has(t.key) ? " active" : ""}" data-ann-id="${id}" data-type="${t.key}">${t.emoji} <span class="js-reaction-count">${Math.max(0, counts[t.key] || 0)}</span></button>`
-    )
-    .join("");
-  return chips ? `<div class="reaction-chips">${chips}</div>` : "";
+function reactionButtonHtml(a, id) {
+  const current = getMyReaction(id);
+  const total =
+    Math.max(0, a.likeCount || 0) +
+    Math.max(0, a.reactions?.fire || 0) +
+    Math.max(0, a.reactions?.clap || 0) +
+    Math.max(0, a.reactions?.laugh || 0) +
+    Math.max(0, a.reactions?.angry || 0);
+  const iconHtml = current && current !== "love" ? `<span class="reaction-emoji">${REACTION_EMOJI[current]}</span>` : current === "love" ? ICONS.heartFilled : ICONS.heart;
+
+  return `
+    <button type="button" class="announcement-action-btn js-reaction-main${current ? " liked" : ""}" data-ann-id="${id}" title="Tap to love — hold for more reactions">
+      ${iconHtml}
+      <span class="js-reaction-total">${total}</span> <span>${total === 1 ? "reaction" : "reactions"}</span>
+    </button>`;
 }
 
 function pollHtml(a, id) {
@@ -935,7 +964,6 @@ function renderAnnouncementsFeed() {
     return;
   }
 
-  const likedPosts = getLikedPosts();
   const BODY_PREVIEW_LEN = 340;
 
   announcementsList.innerHTML = filteredDocs
@@ -944,8 +972,6 @@ function renderAnnouncementsFeed() {
       const a = docSnap.data();
       announcementMeta.set(id, { authorId: a.authorId, title: a.title || "" });
       const time = a.createdAt?.toDate ? timeAgo(a.createdAt.toDate()) : "";
-      const liked = likedPosts.has(id);
-      const likeCount = Math.max(0, a.likeCount || 0);
       const commentCount = Math.max(0, a.commentCount || 0);
       const bodyText = a.body || "";
       const needsTruncate = bodyText.length > BODY_PREVIEW_LEN;
@@ -981,10 +1007,7 @@ function renderAnnouncementsFeed() {
           ${pollHtml(a, id)}
 
           <div class="announcement-actions">
-            <button type="button" class="announcement-action-btn js-like-btn${liked ? " liked" : ""}" data-ann-id="${id}" title="Tap to like — hold for more reactions">
-              ${liked ? ICONS.heartFilled : ICONS.heart}
-              <span class="js-like-count">${likeCount}</span> <span>${likeCount === 1 ? "like" : "likes"}</span>
-            </button>
+            ${reactionButtonHtml(a, id)}
             <button type="button" class="announcement-action-btn js-comment-toggle${commentsOpen ? " comments-open" : ""}" data-ann-id="${id}">
               ${ICONS.comment}
               <span class="js-comment-count">${commentCount}</span> <span>${commentCount === 1 ? "comment" : "comments"}</span>
@@ -993,7 +1016,6 @@ function renderAnnouncementsFeed() {
               ${ICONS.share}<span>Share</span>
             </button>
           </div>
-          ${reactionChipsHtml(a, id)}
 
           <div class="announcement-comments${commentsOpen ? " open" : ""}" data-ann-id="${id}">
             <form class="comment-form js-comment-form${visitorIsAnonymous ? " signed-out" : ""}" data-ann-id="${id}">
@@ -1058,59 +1080,6 @@ if (announcementsList) {
     const body = btn.previousElementSibling;
     const expanded = body.classList.toggle("clamped") === false;
     btn.textContent = expanded ? "See less" : "See more";
-  });
-
-  /* -- like / unlike ----------------------------------------------------- */
-  announcementsList.addEventListener("click", async (e) => {
-    const btn = e.target.closest(".js-like-btn");
-    if (!btn || btn.dataset.busy === "1") return;
-    if (reactionLongPressFired) {
-      reactionLongPressFired = false;
-      return;
-    }
-
-    btn.dataset.busy = "1";
-
-    const id = btn.dataset.annId;
-    const likedPosts = getLikedPosts();
-    const alreadyLiked = likedPosts.has(id);
-    const annRef = doc(db, "announcements", id);
-    const likeRef = doc(db, "announcements", id, "likes", getDeviceId());
-
-    // Optimistic UI update
-    const currentCount = parseInt(btn.querySelector(".js-like-count")?.textContent, 10) || 0;
-    const newCount = Math.max(0, currentCount + (!alreadyLiked ? 1 : -1));
-    btn.classList.toggle("liked", !alreadyLiked);
-    btn.innerHTML = `${!alreadyLiked ? ICONS.heartFilled : ICONS.heart} <span class="js-like-count">${newCount}</span> <span>${newCount === 1 ? "like" : "likes"}</span>`;
-
-    try {
-      if (alreadyLiked) {
-        await deleteDoc(likeRef);
-        // A literal computed value (not increment()) so that if this post's
-        // count was ever corrupted negative by an old bug, this write
-        // self-heals it back onto a valid, non-negative number instead of
-        // trying — and forever failing — to add/subtract 1 from a broken base.
-        await updateDoc(annRef, { likeCount: newCount });
-        likedPosts.delete(id);
-      } else {
-        await setDoc(likeRef, { createdAt: serverTimestamp() });
-        await updateDoc(annRef, { likeCount: newCount });
-        likedPosts.add(id);
-        const meta = announcementMeta.get(id);
-        notifyLeader({
-          leaderId: meta?.authorId,
-          type: "post_like",
-          body: `Someone liked your post "${meta?.title || "your announcement"}".`,
-          announcementId: id,
-        });
-      }
-      saveLikedPosts(likedPosts);
-    } catch (err) {
-      console.error("Like failed:", err);
-      // Re-sync will happen on the next onSnapshot fire regardless.
-    } finally {
-      btn.dataset.busy = "";
-    }
   });
 
   /* -- vote on a poll ------------------------------------------------------ */
@@ -1191,35 +1160,61 @@ if (announcementsList) {
     }, 1800);
   });
 
-  /* -- quick emoji reactions: long-press the heart for the picker, or tap  */
-  /*    an existing chip — both call the same toggle logic ---------------- */
-  async function toggleReaction(annId, type, btn) {
+  /* -- unified single reaction per person (Facebook-style): tap the main  */
+  /*    button to love/un-react; long-press for the full picker, where     */
+  /*    picking a different type replaces whatever was active before ----- */
+  async function addReactionOfType(annId, type) {
+    const docSnap = lastAnnouncementsSnap?.docs.find((d) => d.id === annId);
+    const a = docSnap?.data();
+    if (type === "love") {
+      await setDoc(doc(db, "announcements", annId, "likes", getDeviceId()), { createdAt: serverTimestamp() });
+      const current = Math.max(0, a?.likeCount || 0);
+      await updateDoc(doc(db, "announcements", annId), { likeCount: current + 1 });
+    } else {
+      await setDoc(doc(db, "announcements", annId, "reactions", `${getDeviceId()}_${type}`), { type, createdAt: serverTimestamp() });
+      const current = { fire: 0, clap: 0, laugh: 0, angry: 0, ...(a?.reactions || {}) };
+      current[type] = Math.max(0, (current[type] || 0) + 1);
+      await updateDoc(doc(db, "announcements", annId), { reactions: current });
+    }
+  }
+
+  async function removeReactionOfType(annId, type) {
+    const docSnap = lastAnnouncementsSnap?.docs.find((d) => d.id === annId);
+    const a = docSnap?.data();
+    if (type === "love") {
+      await deleteDoc(doc(db, "announcements", annId, "likes", getDeviceId()));
+      const current = Math.max(0, a?.likeCount || 0);
+      await updateDoc(doc(db, "announcements", annId), { likeCount: Math.max(0, current - 1) });
+    } else {
+      await deleteDoc(doc(db, "announcements", annId, "reactions", `${getDeviceId()}_${type}`));
+      const current = { fire: 0, clap: 0, laugh: 0, angry: 0, ...(a?.reactions || {}) };
+      current[type] = Math.max(0, (current[type] || 0) - 1);
+      await updateDoc(doc(db, "announcements", annId), { reactions: current });
+    }
+  }
+
+  async function setReaction(annId, type, btn) {
     if (btn?.dataset.busy === "1") return;
     if (btn) btn.dataset.busy = "1";
-
-    const myReactions = getMyReactions();
-    const mine = new Set(myReactions[annId] || []);
-    const alreadyActive = mine.has(type);
-    const reactRef = doc(db, "announcements", annId, "reactions", `${getDeviceId()}_${type}`);
-    const annRef = doc(db, "announcements", annId);
-
+    const current = getMyReaction(annId);
+    const removing = current === type;
     try {
-      const docSnap = lastAnnouncementsSnap?.docs.find((d) => d.id === annId);
-      const a = docSnap?.data();
-      const current = { fire: 0, clap: 0, laugh: 0, angry: 0, ...(a?.reactions || {}) };
-      current[type] = Math.max(0, (current[type] || 0) + (alreadyActive ? -1 : 1));
-      if (alreadyActive) {
-        await deleteDoc(reactRef);
-        mine.delete(type);
-      } else {
-        await setDoc(reactRef, { type, createdAt: serverTimestamp() });
-        mine.add(type);
+      if (current) await removeReactionOfType(annId, current);
+      if (!removing) {
+        await addReactionOfType(annId, type);
+        if (type === "love") {
+          const meta = announcementMeta.get(annId);
+          notifyLeader({
+            leaderId: meta?.authorId,
+            type: "post_like",
+            body: `Someone reacted to your post "${meta?.title || "your announcement"}".`,
+            announcementId: annId,
+          });
+        }
       }
-      await updateDoc(annRef, { reactions: current });
-      myReactions[annId] = [...mine];
-      saveMyReactions(myReactions);
-      // The write above re-triggers the feed's onSnapshot, which re-renders
-      // the chips with the new counts.
+      setMyReactionLocal(annId, removing ? null : type);
+      // The write(s) above re-trigger the feed's onSnapshot, which
+      // re-renders this button with the new icon/total.
     } catch (err) {
       console.error("Reaction failed:", err);
     } finally {
@@ -1238,28 +1233,28 @@ if (announcementsList) {
     }
   }
 
-  function openReactionPicker(likeBtn) {
+  function openReactionPicker(mainBtn) {
     closeReactionPicker();
-    const annId = likeBtn.dataset.annId;
-    const mine = new Set(getMyReactions()[annId] || []);
+    const annId = mainBtn.dataset.annId;
+    const current = getMyReaction(annId);
     const picker = document.createElement("div");
     picker.className = "reaction-picker";
     picker.innerHTML = REACTION_TYPES.map(
-      (t) => `<button type="button" class="reaction-picker-btn${mine.has(t.key) ? " active" : ""}" data-type="${t.key}">${t.emoji}</button>`
+      (t) => `<button type="button" class="reaction-picker-btn${current === t.key ? " active" : ""}" data-type="${t.key}">${t.emoji}</button>`
     ).join("");
     picker.addEventListener("click", (e) => {
       const btn = e.target.closest(".reaction-picker-btn");
       if (!btn) return;
-      toggleReaction(annId, btn.dataset.type);
+      setReaction(annId, btn.dataset.type);
       closeReactionPicker();
     });
-    likeBtn.appendChild(picker);
+    mainBtn.appendChild(picker);
     activeReactionPicker = picker;
     requestAnimationFrame(() => picker.classList.add("open"));
   }
 
   announcementsList.addEventListener("pointerdown", (e) => {
-    const btn = e.target.closest(".js-like-btn");
+    const btn = e.target.closest(".js-reaction-main");
     if (!btn) return;
     reactionLongPressFired = false;
     reactionPressTimer = setTimeout(() => {
@@ -1271,16 +1266,22 @@ if (announcementsList) {
     announcementsList.addEventListener(evt, () => clearTimeout(reactionPressTimer));
   });
   document.addEventListener("click", (e) => {
-    if (activeReactionPicker && !e.target.closest(".reaction-picker") && !e.target.closest(".js-like-btn")) {
+    if (activeReactionPicker && !e.target.closest(".reaction-picker") && !e.target.closest(".js-reaction-main")) {
       closeReactionPicker();
     }
   });
 
-  /* -- tapping an existing reaction chip toggles it, same as the picker -- */
+  /* -- a plain tap on the main button toggles your current reaction off, */
+  /*    or sets love if you haven't reacted yet ---------------------------- */
   announcementsList.addEventListener("click", (e) => {
-    const chip = e.target.closest(".js-reaction-chip");
-    if (!chip) return;
-    toggleReaction(chip.dataset.annId, chip.dataset.type, chip);
+    const btn = e.target.closest(".js-reaction-main");
+    if (!btn) return;
+    if (reactionLongPressFired) {
+      reactionLongPressFired = false;
+      return;
+    }
+    const annId = btn.dataset.annId;
+    setReaction(annId, getMyReaction(annId) || "love", btn);
   });
 
   /* -- bookmark a post (local to this browser, no account needed) ------- */
