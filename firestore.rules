@@ -118,11 +118,14 @@ service cloud.firestore {
     }
 
     // ---- notifications/{notificationId} --------------------------------
-    // A leader gets one of these whenever a visitor likes/comments on
-    // their post, likes their comment, or replies to their comment
+    // Someone gets one of these whenever another visitor likes/comments on
+    // their post or comment, replies to their comment, or @mentions them
     // (js/main.js writes these as a side effect of those actions — never
-    // when a leader does it to their own post/comment). Only the
-    // recipient can ever read their own notifications or mark one read.
+    // when the same person does it to their own post/comment). The
+    // recipient can be a leader OR a visitor who's commented — anyone with
+    // a real Firebase Auth uid, not just the 9 leader accounts, since
+    // visitors can see their own notifications in the dashboard too. Only
+    // the recipient can ever read their own notifications or mark one read.
     match /notifications/{notificationId} {
       allow read: if request.auth != null && request.auth.uid == resource.data.leaderId;
       allow update: if request.auth != null
@@ -131,8 +134,8 @@ service cloud.firestore {
       allow create: if request.auth != null
                     && request.resource.data.keys().hasAll(['leaderId', 'type', 'actorName', 'body', 'read', 'createdAt'])
                     && request.resource.data.leaderId is string
+                    && request.resource.data.leaderId.size() > 0
                     && request.resource.data.leaderId != request.auth.uid
-                    && exists(/databases/$(database)/documents/leaders/$(request.resource.data.leaderId))
                     && request.resource.data.type is string
                     && request.resource.data.actorName is string
                     && request.resource.data.actorName.size() <= 80
