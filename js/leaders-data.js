@@ -31,7 +31,7 @@ export const LEADERS = [
   },
   {
     id: "leader-02",
-    name: "Anas",
+    name: "Anas Yaqub",
     position: "Head of Strategy & Negotiations",
     department: "Strategy",
     bio: "Develops innovative ideas and long-term growth strategies, leads negotiations, and helps shape the project's strategic direction.",
@@ -51,7 +51,7 @@ export const LEADERS = [
   },
   {
     id: "leader-04",
-    name: "Abdulkadeer",
+    name: "Abdulkadir Nasiru Bello",
     position: "Head of Community & Social Media",
     department: "Community",
     bio: "Leads community management, oversees social media operations, and drives audience engagement and growth.",
