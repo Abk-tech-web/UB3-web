@@ -36,5 +36,4 @@
   .announcement-avatar { width: 48px; height: 48px; }
   .announcement-title { font-size: 18px; }
   .announcement-actions { flex-wrap: wrap; }
-  .comment-form-row { flex-direction: column; }
 }
