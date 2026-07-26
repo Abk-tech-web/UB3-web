@@ -689,6 +689,20 @@ function mentionCandidates() {
   return LEADERS.filter((l) => l.name).sort((a, b) => b.name.length - a.name.length);
 }
 
+// Builds the regex source for one leader's name: matches their full name
+// (tolerating any amount of whitespace between words, since a name typed
+// into a comment and a name saved from a profile form don't always agree
+// on spacing), OR just their first name on its own — a leader's live
+// dashboard profile can change or add a surname at any time, so requiring
+// an exact full-name match would silently break the moment that happens.
+function mentionPatternSource(name) {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return null;
+  const full = words.map(escapeRegex).join("\\s+");
+  const first = escapeRegex(words[0]);
+  return words.length > 1 ? `(?:${full}|${first})` : full;
+}
+
 // Finds every leader @-mentioned in a comment/reply body (case-insensitive,
 // whole-word), deduped by leader id. Used right after a comment is posted
 // to decide who to notify.
@@ -696,8 +710,8 @@ function findMentionedLeaders(text) {
   if (!text) return [];
   const found = new Map();
   mentionCandidates().forEach((l) => {
-    const re = new RegExp(`@${escapeRegex(l.name)}\\b`, "i");
-    if (re.test(text)) found.set(l.id, l);
+    const pattern = mentionPatternSource(l.name);
+    if (pattern && new RegExp(`@${pattern}\\b`, "i").test(text)) found.set(l.id, l);
   });
   return [...found.values()];
 }
@@ -708,7 +722,9 @@ function findMentionedLeaders(text) {
 function renderMentions(escapedText) {
   let out = escapedText;
   mentionCandidates().forEach((l) => {
-    const re = new RegExp(`@${escapeRegex(l.name)}\\b`, "gi");
+    const pattern = mentionPatternSource(l.name);
+    if (!pattern) return;
+    const re = new RegExp(`@${pattern}\\b`, "gi");
     out = out.replace(re, (m) => `<span class="comment-mention">${m}</span>`);
   });
   return out;
