@@ -39,6 +39,17 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ---- settings/{settingId} -------------------------------------------
+    // Small shared, site-wide values editable from any leader's dashboard
+    // (not tied to one author) — e.g. settings/roadmap holds the overall
+    // progress bar shown on the public Roadmap section. Anyone can read;
+    // only a signed-in, registered leader can write.
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if request.auth != null
+                   && exists(/databases/$(database)/documents/leaders/$(request.auth.uid));
+    }
+
     // ---- messages/{messageId} -----------------------------------------
     // Visitors (unauthenticated) can create a message for a leader or the
     // general inbox. A leader can read/mark-as-read messages addressed to
@@ -153,8 +164,29 @@ service cloud.firestore {
                     && request.auth.uid == resource.data.authorId
                     && request.resource.data.authorId == resource.data.authorId)
                     || isValidCounterUpdate()
-                    || isValidPollVoteUpdate();
+                    || isValidPollVoteUpdate()
+                    || isValidReactionUpdate();
       allow delete: if request.auth != null && request.auth.uid == resource.data.authorId;
+
+      // Anyone (reactions are anonymous, same trust model as likes) may
+      // nudge the reactions map by exactly ±1 in total across fire+clap
+      // per write — same self-healing floor-at-0 pattern as everything
+      // else here, sent as one literal replacement map rather than
+      // per-field increments so it's a single, easy-to-validate diff key.
+      function isValidReactionUpdate() {
+        let diffKeys = request.resource.data.diff(resource.data).affectedKeys();
+        let oldR = ('reactions' in resource.data) ? resource.data.reactions : {};
+        let oldFireRaw = ('fire' in oldR) ? oldR.fire : 0;
+        let oldClapRaw = ('clap' in oldR) ? oldR.clap : 0;
+        let oldFire = oldFireRaw < 0 ? 0 : oldFireRaw;
+        let oldClap = oldClapRaw < 0 ? 0 : oldClapRaw;
+        let newR = request.resource.data.reactions;
+        return diffKeys.hasOnly(['reactions'])
+            && newR.fire is int && newR.clap is int
+            && newR.fire >= 0 && newR.clap >= 0
+            && (newR.fire + newR.clap) >= (oldFire + oldClap) - 1
+            && (newR.fire + newR.clap) <= (oldFire + oldClap) + 1;
+      }
 
       // A poll never has more than 4 options, so this ternary chain covers
       // every valid size without needing a loop (rules has none).
@@ -210,6 +242,19 @@ service cloud.firestore {
       match /likes/{likeId} {
         allow read: if true;
         allow write: if request.resource.data.keys().hasOnly(['createdAt']);
+        allow delete: if true;
+      }
+
+      // ---- announcements/{announcementId}/reactions/{deviceId_type} ----
+      // Quick reactions beyond the heart (🔥 fire, 👏 clap) — same
+      // anonymous, device-based, self-healing pattern as likes above, just
+      // parameterized by type. Doc id is "<deviceId>_<type>" so one device
+      // can hold a fire reaction and a clap reaction at the same time, each
+      // independently created/removed.
+      match /reactions/{reactionId} {
+        allow read: if true;
+        allow write: if request.resource.data.keys().hasOnly(['type', 'createdAt'])
+                     && request.resource.data.type in ['fire', 'clap'];
         allow delete: if true;
       }
 

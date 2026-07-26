@@ -72,6 +72,7 @@
     <button class="dash-nav-item" data-panel="announcements">Announcements</button>
     <button class="dash-nav-item" data-panel="notifications">Notifications <span id="notif-badge"></span></button>
     <button class="dash-nav-item" data-panel="inbox">Inbox <span id="unread-badge"></span></button>
+    <button class="dash-nav-item" data-panel="settings">Site Settings</button>
     <button class="dash-nav-item" data-panel="security">Security</button>
     <div class="dash-side-foot">
       <a href="index.html" class="dash-nav-item">View Public Site</a>
@@ -206,6 +207,18 @@
         <p style="color:var(--silver-dim); font-size:13.5px; margin-top:-10px; margin-bottom:18px;">You'll see one here whenever a visitor likes or comments on your posts, likes your comment, or replies to it.</p>
         <div class="msg-list" id="notif-list"><div class="empty-state">Loading notifications…</div></div>
       </div>
+    </section>
+
+    <!-- SITE SETTINGS -->
+    <section class="dash-panel" data-panel="settings">
+      <form class="dash-card glass" id="roadmap-settings-form">
+        <h3>Roadmap Progress</h3>
+        <p style="color:var(--silver-dim); font-size:13.5px; margin-top:-10px; margin-bottom:18px;">Shared across all 9 leaders — this sets the overall progress bar shown on the public Roadmap section. Whoever saves last is what's live.</p>
+        <div class="field"><label>Status label</label><input type="text" name="label" maxlength="80" placeholder="e.g. Phase 02 — Opportunity"></div>
+        <div class="field"><label>Overall progress (%)</label><input type="number" name="percent" min="0" max="100" step="1" placeholder="0–100"></div>
+        <button type="submit" class="btn btn-primary">Save Progress</button>
+        <p class="form-status" id="roadmap-settings-status"></p>
+      </form>
     </section>
 
     <!-- INBOX -->

@@ -161,6 +161,13 @@
       <h2>Roadmap</h2>
       <p>UB3 is built to expand — from research and education today, to governance and Web3 utilities ahead.</p>
     </div>
+    <div class="roadmap-progress reveal" id="roadmap-progress" style="display:none;">
+      <div class="roadmap-progress-top">
+        <span class="roadmap-progress-label" id="roadmap-progress-label"></span>
+        <span class="roadmap-progress-pct" id="roadmap-progress-pct"></span>
+      </div>
+      <div class="roadmap-progress-track"><div class="roadmap-progress-fill" id="roadmap-progress-fill"></div></div>
+    </div>
     <div class="roadmap-track">
       <div class="roadmap-item reveal">
         <div class="r-phase">Phase 01 — Foundation</div>
@@ -288,7 +295,13 @@
       <h2>Announcements</h2>
       <p>Official updates from the UB3 leadership team — research drops, opportunities, and community news, posted directly by the 9 verified leader accounts.</p>
     </div>
-    <div class="announcement-filters reveal" id="announcement-filters"></div>
+    <div class="announcement-toolbar reveal">
+      <div class="announcement-search">
+        <span class="announcement-search-icon"></span>
+        <input type="search" id="announcement-search" placeholder="Search announcements…" autocomplete="off">
+      </div>
+      <div class="announcement-filters" id="announcement-filters"></div>
+    </div>
     <div class="announcements-list" id="announcements-list">
       <div class="announcement-skeleton glass"></div>
       <div class="announcement-skeleton glass"></div>
