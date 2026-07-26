@@ -14,7 +14,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  setDoc,
   updateDoc,
   deleteDoc,
   addDoc,
@@ -124,38 +123,64 @@ onAuthStateChanged(auth, async (user) => {
   }
   currentUser = user;
 
+  // Whether someone gets the full dashboard or just Notifications depends
+  // ENTIRELY on whether a leaders/{uid} profile already exists — never on
+  // just being signed in. That profile can only ever be created by the
+  // controlled email/password signup flow in auth.js (and firestore.rules
+  // enforces that server-side too, capped at 9 accounts). Visitors who
+  // sign in with Google purely to comment on the public site never get
+  // one, so they land here as a visitor, not a leader — no profile is
+  // ever auto-created for them.
   const leaderRef = doc(db, "leaders", user.uid);
-  const snap = await getDoc(leaderRef);
-  if (snap.exists()) {
-    currentLeader = snap.data();
-  } else {
-    // Auth account exists but its Firestore profile is missing (e.g. it
-    // never finished being created). Create it now so future saves work.
-    currentLeader = {
-      name: user.displayName || "Leader",
-      email: user.email || "",
-      position: "",
-      department: "Executive",
-      phone: "",
-      bio: "",
-      photoURL: "",
-      socials: { x: "", telegram: "" },
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
-    await setDoc(leaderRef, currentLeader).catch((err) => console.error("Could not create missing leader profile:", err));
+  let snap = null;
+  try {
+    snap = await getDoc(leaderRef);
+  } catch (err) {
+    console.error("Couldn't check leader status:", err);
   }
 
   document.getElementById("auth-gate").style.display = "none";
   document.getElementById("dash-shell").style.display = "grid";
 
-  populateOverview();
-  populateProfileForm();
-  watchInbox();
-  watchMyAnnouncements();
+  if (snap?.exists()) {
+    currentLeader = snap.data();
+    populateOverview();
+    populateProfileForm();
+    watchInbox();
+    watchMyAnnouncements();
+    watchRoadmapUpdates();
+  } else {
+    enterVisitorMode(user);
+  }
+
+  // Notifications work the same way for everyone with a signed-in uid —
+  // a leader gets notified about their posts/comments, a visitor gets
+  // notified about their own comment activity (likes, replies, mentions).
   watchNotifications();
-  watchRoadmapUpdates();
 });
+
+// Locks the dashboard down to just the Notifications panel for anyone
+// signed in who isn't one of the 9 leader accounts — i.e. a visitor who
+// signed in with Google to comment on the public site, not through the
+// leader signup/login flow.
+function enterVisitorMode(user) {
+  document.getElementById("dash-greeting").textContent = `Welcome, ${firstName(user.displayName || "there")}`;
+
+  const notice = document.getElementById("visitor-notice");
+  if (notice) notice.style.display = "block";
+
+  document.querySelectorAll(".dash-nav-item[data-panel]").forEach((btn) => {
+    if (btn.dataset.panel === "notifications") return;
+    btn.disabled = true;
+    btn.classList.add("locked");
+    btn.title = "Only UB3 leaders have access to this section.";
+  });
+
+  document.querySelectorAll(".dash-nav-item[data-panel]").forEach((b) => b.classList.remove("active"));
+  document.querySelector('.dash-nav-item[data-panel="notifications"]')?.classList.add("active");
+  document.querySelectorAll(".dash-panel").forEach((p) => p.classList.remove("active"));
+  document.querySelector('.dash-panel[data-panel="notifications"]')?.classList.add("active");
+}
 
 document.getElementById("logout-btn")?.addEventListener("click", async () => {
   await signOut(auth);
