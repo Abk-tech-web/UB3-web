@@ -442,31 +442,54 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
 .announcement-card.pinned { border-color: rgba(56, 189, 248, 0.35); }
 .announcement-card.highlight-flash { border-color: var(--cyan-glow); box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25); }
 
-/* -- header row: avatar + a clean two-line name/role/time block ---------- */
-.announcement-top { display: flex; align-items: flex-start; gap: 16px; }
+/* -- header row: avatar (fixed) + a stacked name/role/meta/status column -
+   Row 1: avatar | username + verified badge + UB3 badge
+   Row 2: role badge
+   Row 3: "Posted in Announcements • time" (time never wraps)
+   Row 4: status badges (Pinned / category), own row, wraps under on mobile
+   ------------------------------------------------------------------------ */
+.announcement-top { display: flex; align-items: flex-start; gap: 14px; }
 .announcement-avatar {
   width: 60px; height: 60px; border-radius: 50%; flex-shrink: 0; overflow: hidden;
   background: var(--grad-primary); display: flex; align-items: center; justify-content: center;
   font-family: var(--font-display); font-size: 20px; font-weight: 700; color: #fff;
 }
 .announcement-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.announcement-who { min-width: 0; flex: 1; }
-.announcement-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; font-size: 17.5px; line-height: 1.3; min-width: 0; }
-.announcement-name { font-weight: 800; color: var(--white); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+.announcement-who {
+  min-width: 0; flex: 1;
+  display: flex; flex-direction: column; gap: 8px;
+}
+
+/* Row 1 — username has layout priority; badges never shrink or push it out */
+.announcement-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 17.5px; line-height: 1.3; min-width: 0; }
+.announcement-name { flex: 1 1 auto; min-width: 0; font-weight: 800; color: var(--white); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .announcement-name-row .badge-btn { margin-left: 0; flex-shrink: 0; }
 .announcement-name-row .verified-badge,
-.announcement-name-row .affiliate-badge { width: 1.4em; height: 1.4em; }
-.announcement-submeta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 5px; }
-.announcement-meta { font-size: 13.5px; color: var(--silver-dim); font-weight: 400; }
-.announcement-meta .dot { margin: 0 6px; opacity: 0.7; }
+.announcement-name-row .affiliate-badge { width: 1.4em; height: 1.4em; flex-shrink: 0; }
+
+/* Row 2 — role badge, own row directly under the username */
+.announcement-role-row { display: flex; }
 .announcement-role-badge {
   font-size: 12px; font-weight: 600; letter-spacing: 0.01em; color: var(--cyan-glow);
   background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3);
   padding: 3px 11px; border-radius: 999px; white-space: nowrap;
 }
 
-/* -- top-right cluster: Pinned + category tag sit together as one group - */
-.announcement-top-badges { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+/* Row 3 — "Posted in Announcements • time", always a single line; the
+   "posted in" label may ellipsis on very narrow screens but the time
+   itself never shrinks and never wraps. */
+.announcement-submeta { display: flex; align-items: center; min-width: 0; gap: 6px; }
+.announcement-meta-posted { font-size: 13.5px; color: var(--silver-dim); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex-shrink: 1; }
+.announcement-meta-dot { font-size: 13.5px; color: var(--silver-dim); opacity: 0.7; flex-shrink: 0; }
+.announcement-meta-time { font-size: 13.5px; color: var(--silver-dim); font-weight: 400; white-space: nowrap; flex-shrink: 0; }
+/* legacy alias kept in case any other view still renders the old single-span meta */
+.announcement-meta { font-size: 13.5px; color: var(--silver-dim); font-weight: 400; white-space: nowrap; }
+.announcement-meta .dot { margin: 0 6px; opacity: 0.7; }
+
+/* Row 4 — status badges (Pinned / category); always their own row, never
+   sharing a row with the username, free to wrap on narrow screens. */
+.announcement-top-badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .announcement-tag {
   font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: var(--silver);
   background: var(--surface-strong); border: 1px solid var(--surface-border-strong);
@@ -532,10 +555,10 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
   border-radius: 50%; transition: background 0.15s var(--ease), color 0.15s var(--ease); margin-left: -9px;
 }
 .announcement-action-icon svg { width: 20px; height: 20px; flex-shrink: 0; }
-.announcement-action-btn:nth-child(1):hover { color: #1d9bf0; }
-.announcement-action-btn:nth-child(1):hover .announcement-action-icon { background: rgba(29, 155, 240, 0.1); }
-.announcement-action-btn:nth-child(2):hover { color: #00ba7c; }
-.announcement-action-btn:nth-child(2):hover .announcement-action-icon { background: rgba(0, 186, 124, 0.1); }
+.announcement-action-btn.js-comment-toggle:hover { color: #1d9bf0; }
+.announcement-action-btn.js-comment-toggle:hover .announcement-action-icon { background: rgba(29, 155, 240, 0.1); }
+.announcement-action-btn.js-share-btn:hover { color: #00ba7c; }
+.announcement-action-btn.js-share-btn:hover .announcement-action-icon { background: rgba(0, 186, 124, 0.1); }
 .announcement-action-btn.js-reaction-main:hover { color: #f91880; }
 .announcement-action-btn.js-reaction-main:hover .announcement-action-icon { background: rgba(249, 24, 128, 0.1); }
 .announcement-action-btn.liked { color: #f91880; }

@@ -37,4 +37,18 @@
   .announcement-title { font-size: 18px; }
   .announcement-photo { max-height: 420px; }
   .announcement-actions { max-width: none; }
+
+  /* Header rows on small screens: username keeps priority and is never
+     truncated by badges; badges wrap to their own line instead of
+     shrinking the name; the "Posted in … • time" line stays one line
+     with the time portion always fully visible, never wrapping. */
+  .announcement-top { gap: 12px; }
+  .announcement-who { gap: 8px; }
+  .announcement-name-row { row-gap: 6px; }
+  .announcement-name { font-size: 16px; }
+  .announcement-submeta { font-size: 12.5px; }
+  .announcement-meta-posted,
+  .announcement-meta-dot,
+  .announcement-meta-time { font-size: 12.5px; }
+  .announcement-top-badges { row-gap: 6px; }
 }
