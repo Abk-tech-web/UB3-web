@@ -1097,16 +1097,21 @@ function renderAnnouncementsFeed() {
                 <span class="announcement-name">${escapeHtml(a.authorName || "UB3")}</span>
                 ${authorBadgeHtml(a)}
               </div>
+              ${a.authorPosition ? `
+              <div class="announcement-role-row">
+                <span class="announcement-role-badge">${escapeHtml(a.authorPosition)}</span>
+              </div>` : ""}
               <div class="announcement-submeta">
-                ${a.authorPosition ? `<span class="announcement-role-badge">${escapeHtml(a.authorPosition)}</span>` : ""}
-                <span class="announcement-meta">${time}</span>
+                <span class="announcement-meta-posted">Posted in Announcements</span>
+                <span class="announcement-meta-dot">•</span>
+                <span class="announcement-meta-time">${time}</span>
               </div>
+              ${a.pinned || a.category ? `
+              <div class="announcement-top-badges">
+                ${a.pinned ? `<span class="announcement-pin-badge">${ICONS.pin}Pinned</span>` : ""}
+                ${a.category ? `<span class="announcement-tag">${escapeHtml(a.category)}</span>` : ""}
+              </div>` : ""}
             </div>
-            ${a.pinned || a.category ? `
-            <div class="announcement-top-badges">
-              ${a.pinned ? `<span class="announcement-pin-badge">${ICONS.pin}Pinned</span>` : ""}
-              ${a.category ? `<span class="announcement-tag">${escapeHtml(a.category)}</span>` : ""}
-            </div>` : ""}
           </div>
 
           <h3 class="announcement-title">${escapeHtml(a.title)}</h3>
@@ -1116,6 +1121,7 @@ function renderAnnouncementsFeed() {
           ${pollHtml(a, id)}
 
           <div class="announcement-actions">
+            ${reactionButtonHtml(a, id)}
             <button type="button" class="announcement-action-btn js-comment-toggle${commentsOpen ? " comments-open" : ""}" data-ann-id="${id}">
               <span class="announcement-action-icon">${ICONS.comment}</span>
               <span class="js-comment-count">${commentCount}</span>
@@ -1123,7 +1129,6 @@ function renderAnnouncementsFeed() {
             <button type="button" class="announcement-action-btn js-share-btn" data-ann-id="${id}">
               <span class="announcement-action-icon">${ICONS.share}</span>
             </button>
-            ${reactionButtonHtml(a, id)}
             <button type="button" class="announcement-action-btn announcement-bookmark-btn js-bookmark-btn${bookmarked ? " active" : ""}" data-ann-id="${id}" title="${bookmarked ? "Remove bookmark" : "Save for later"}">
               <span class="announcement-action-icon">${bookmarked ? ICONS.bookmarkFilled : ICONS.bookmark}</span>
             </button>
