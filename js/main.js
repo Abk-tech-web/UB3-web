@@ -1195,6 +1195,15 @@ if (announcementsList) {
     }
   );
 
+  /* -- click a verified leader's avatar/name in a comment -> their public */
+  /*    profile (same modal as "View Profile" in the Leadership grid).     */
+  /*    No sign-in required — anyone who can see the comment can view it.  */
+  announcementsList.addEventListener("click", (e) => {
+    const btn = e.target.closest(".js-comment-leader-link");
+    if (!btn) return;
+    openLeaderModal(btn.dataset.openProfile);
+  });
+
   /* -- see more / see less -------------------------------------------- */
   announcementsList.addEventListener("click", (e) => {
     const btn = e.target.closest(".js-see-more");
@@ -1825,16 +1834,29 @@ function renderCommentHtml(c, annId, ownUid, likedComments, isReply, repliesHtml
   // name + position + the same verified/affiliate badges used on their
   // posts — instead of just a plain visitor name — so it's obvious when a
   // leader is speaking. Reuses LEADERS[].uid, the same lookup as posts.
+  // A match here IS the verification check: only the 9 real leader
+  // accounts can ever have `c.uid` equal a LEADERS[].uid (enforced by
+  // firestore.rules on account creation), so leaderSlot doubles as "this
+  // comment is from a verified UB3 leader" — that's what gates the
+  // clickable avatar/name below, not just visual styling.
   const leaderSlot = LEADERS.find((l) => l.uid && l.uid === c.uid);
-  const avatarHtml = leaderSlot?.photo
+  const avatarInner = leaderSlot?.photo
     ? `<img src="${leaderSlot.photo}" alt="">`
     : c.photoURL
     ? `<img src="${c.photoURL}" alt="">`
     : initials(c.name || "?");
+  const hasPhoto = c.photoURL || leaderSlot?.photo;
+
+  // Verified leaders get a clickable avatar + name that open their public
+  // profile (the same leader-modal used everywhere else on the site);
+  // everyone else's avatar/name stays plain, non-interactive markup.
+  const avatarHtml = leaderSlot
+    ? `<button type="button" class="comment-avatar${hasPhoto ? " has-photo" : ""} js-comment-leader-link" data-open-profile="${leaderSlot.id}" aria-label="View ${escapeHtml(leaderSlot.name)}'s profile">${avatarInner}</button>`
+    : `<div class="comment-avatar${hasPhoto ? " has-photo" : ""}">${avatarInner}</div>`;
   const nameHtml = leaderSlot
     ? `
       <div class="comment-name-row">
-        <span class="comment-name">${escapeHtml(leaderSlot.name || c.name || "Visitor")}</span>
+        <button type="button" class="comment-name js-comment-leader-link" data-open-profile="${leaderSlot.id}" aria-label="View ${escapeHtml(leaderSlot.name)}'s profile">${escapeHtml(leaderSlot.name || c.name || "Visitor")}</button>
         ${verifiedBadge(leaderSlot)}${affiliateBadge(leaderSlot)}
       </div>
       ${leaderSlot.position ? `<span class="comment-role-badge">${escapeHtml(leaderSlot.position)}</span>` : ""}`
@@ -1842,7 +1864,7 @@ function renderCommentHtml(c, annId, ownUid, likedComments, isReply, repliesHtml
 
   return `
     <div class="comment-item${isReply ? " is-reply" : ""}" data-ann-id="${annId}" data-comment-id="${id}" data-owner-uid="${c.uid || ""}">
-      <div class="comment-avatar${c.photoURL || leaderSlot?.photo ? " has-photo" : ""}">${avatarHtml}</div>
+      ${avatarHtml}
       <div class="comment-body-wrap">
         ${nameHtml}
         <div class="comment-text js-comment-text">${renderMentions(escapeHtml(c.body || ""))}</div>
