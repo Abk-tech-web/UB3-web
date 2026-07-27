@@ -9,6 +9,10 @@ export function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function escapeHtml(str) {
+  return (str || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 // Builds the regex source for one leader's name: matches their full name
 // (tolerating any amount of whitespace between words, since a name typed
 // into a post/comment and a name saved from a profile form don't always
@@ -57,12 +61,23 @@ export function findMentionedLeaders(text, leaders) {
 // Highlights + links every recognized @mention inside an already-escaped
 // HTML string, same idea as the blue @mentions on Facebook/X.
 //
-// `mentions` is the list of {id, name} pairs stored on the post/comment at
-// write time. Matching uses that STORED name (so old text still lights up
-// even after a rename), but verification + the profile link itself are
-// resolved live against the current roster by id — so a leader's mention
-// always opens their current profile, and a leader who is no longer
-// verified stops being clickable everywhere, immediately.
+// The mention is ALWAYS resolved by the leader's permanent roster id, never
+// by the text that was typed:
+//   - `mentions` is the {id, name} snapshot stored on the post/comment at
+//     write time. The snapshot `name` is only used to locate WHERE in the
+//     old text the mention is (matching against whatever text was actually
+//     typed/stored) — it is never what gets displayed.
+//   - Once a match is found, the id is looked up against the LIVE roster
+//     and the leader's CURRENT display name is what actually renders.
+//     Change a leader's name once, twice, a hundred times — every existing
+//     mention of them, anywhere on the platform, updates automatically the
+//     next time it renders. Nothing about the stored post/comment ever
+//     needs to be touched.
+//   - Verification (and therefore clickability) is also resolved live: if
+//     a leader is no longer verified, their mentions stop being clickable
+//     immediately, everywhere, without editing old content.
+//   - The profile link itself uses the id, never the name, so it can never
+//     point at the wrong (or a nonexistent) profile.
 //
 // Falls back to matching against the live roster directly for legacy
 // content saved before `mentions` existed.
@@ -73,14 +88,20 @@ export function renderMentions(escapedText, mentions, leaders) {
     : mentionCandidates(leaders).map((l) => ({ id: l.id, name: l.name }));
 
   list.forEach((m) => {
+    // Permanent-id lookup against the live roster — this is the ONLY
+    // source of truth for what gets displayed and where the link points.
     const slot = leaders.find((l) => l.id === m.id);
     if (!slot || !slot.uid) return; // not a verified leader (anymore) -> stays plain text
+
+    // The snapshot name is used only to find the mention in the raw text;
+    // it tolerates the leader having since changed their name.
     const pattern = mentionPatternSource(m.name);
     if (!pattern) return;
     const re = new RegExp(`@${pattern}\\b`, "gi");
+    const currentLabel = `@${escapeHtml(slot.name)}`;
     out = out.replace(
       re,
-      (match) => `<button type="button" class="comment-mention js-mention-link" data-open-profile="${slot.id}">${match}</button>`
+      () => `<button type="button" class="comment-mention js-mention-link" data-open-profile="${slot.id}">${currentLabel}</button>`
     );
   });
   return out;
