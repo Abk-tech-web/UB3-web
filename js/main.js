@@ -902,15 +902,17 @@ let deepLinkHandled = false;
 // style: exactly one of these is ever active per person per post.
 const REACTION_TYPES = [
   { key: "love", emoji: "❤️" },
+  { key: "like", emoji: "👍" },
   { key: "fire", emoji: "🔥" },
   { key: "clap", emoji: "👏" },
   { key: "laugh", emoji: "😂" },
+  { key: "sad", emoji: "😔" },
   { key: "angry", emoji: "😡" },
 ];
-const REACTION_EMOJI = { love: "❤️", fire: "🔥", clap: "👏", laugh: "😂", angry: "😡" };
+const REACTION_EMOJI = { love: "❤️", like: "👍", fire: "🔥", clap: "👏", laugh: "😂", sad: "😔", angry: "😡" };
 // Order the breakdown is checked in — doesn't affect which ones show, only
 // tie-breaking when counts are equal.
-const REACTION_ORDER = ["love", "fire", "clap", "laugh", "angry"];
+const REACTION_ORDER = ["love", "like", "fire", "clap", "laugh", "sad", "angry"];
 
 // Pulls the per-type counts (likeCount is "love", everything else lives in
 // a.reactions) into one plain object so the rest of the code doesn't have
@@ -918,9 +920,11 @@ const REACTION_ORDER = ["love", "fire", "clap", "laugh", "angry"];
 function reactionCounts(a) {
   return {
     love: Math.max(0, a?.likeCount || 0),
+    like: Math.max(0, a?.reactions?.like || 0),
     fire: Math.max(0, a?.reactions?.fire || 0),
     clap: Math.max(0, a?.reactions?.clap || 0),
     laugh: Math.max(0, a?.reactions?.laugh || 0),
+    sad: Math.max(0, a?.reactions?.sad || 0),
     angry: Math.max(0, a?.reactions?.angry || 0),
   };
 }
@@ -945,7 +949,7 @@ function reactionBreakdownHtml(counts) {
 function reactionButtonHtml(a, id) {
   const current = getMyReaction(id);
   const counts = reactionCounts(a);
-  const total = counts.love + counts.fire + counts.clap + counts.laugh + counts.angry;
+  const total = counts.love + counts.like + counts.fire + counts.clap + counts.laugh + counts.sad + counts.angry;
   const iconHtml = reactionBreakdownHtml(counts) || ICONS.heart;
 
   return `
@@ -1289,7 +1293,7 @@ if (announcementsList) {
       await updateDoc(doc(db, "announcements", annId), { likeCount: current + 1 });
     } else {
       await setDoc(doc(db, "announcements", annId, "reactions", `${getDeviceId()}_${type}`), { type, createdAt: serverTimestamp() });
-      const current = { fire: 0, clap: 0, laugh: 0, angry: 0, ...(a?.reactions || {}) };
+      const current = { like: 0, fire: 0, clap: 0, laugh: 0, sad: 0, angry: 0, ...(a?.reactions || {}) };
       current[type] = Math.max(0, (current[type] || 0) + 1);
       await updateDoc(doc(db, "announcements", annId), { reactions: current });
     }
@@ -1304,7 +1308,7 @@ if (announcementsList) {
       await updateDoc(doc(db, "announcements", annId), { likeCount: Math.max(0, current - 1) });
     } else {
       await deleteDoc(doc(db, "announcements", annId, "reactions", `${getDeviceId()}_${type}`));
-      const current = { fire: 0, clap: 0, laugh: 0, angry: 0, ...(a?.reactions || {}) };
+      const current = { like: 0, fire: 0, clap: 0, laugh: 0, sad: 0, angry: 0, ...(a?.reactions || {}) };
       current[type] = Math.max(0, (current[type] || 0) - 1);
       await updateDoc(doc(db, "announcements", annId), { reactions: current });
     }
@@ -1318,12 +1322,12 @@ if (announcementsList) {
     } catch {
       counts = {};
     }
-    counts = { love: 0, fire: 0, clap: 0, laugh: 0, angry: 0, ...counts };
+    counts = { love: 0, like: 0, fire: 0, clap: 0, laugh: 0, sad: 0, angry: 0, ...counts };
     if (previousType) counts[previousType] = Math.max(0, (counts[previousType] || 0) - 1);
     if (newType) counts[newType] = (counts[newType] || 0) + 1;
     btn.dataset.counts = JSON.stringify(counts);
 
-    const newTotal = counts.love + counts.fire + counts.clap + counts.laugh + counts.angry;
+    const newTotal = counts.love + counts.like + counts.fire + counts.clap + counts.laugh + counts.sad + counts.angry;
     const iconHtml = reactionBreakdownHtml(counts) || ICONS.heart;
     btn.classList.toggle("liked", !!newType);
     btn.innerHTML = `${iconHtml}<span class="js-reaction-total">${newTotal}</span> <span>${newTotal === 1 ? "reaction" : "reactions"}</span>`;
