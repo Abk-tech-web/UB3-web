@@ -24,6 +24,7 @@ import {
   limit,
   onSnapshot,
   serverTimestamp,
+  writeBatch,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { initials } from "./leaders-data.js";
 
@@ -149,6 +150,7 @@ onAuthStateChanged(auth, async (user) => {
     watchInbox();
     watchMyAnnouncements();
     watchRoadmapUpdates();
+    watchRoadmapPhases();
   } else {
     enterVisitorMode(user);
   }
@@ -917,6 +919,304 @@ function watchRoadmapUpdates() {
           detail.slice(urlMatch.index + urlMatch[0].length)
         : detail;
       list.innerHTML = `<div class="empty-state">Couldn't load roadmap history.<br><small style="opacity:.7;word-break:break-word;">(${detailHtml})</small></div>`;
+      console.error(err);
+    }
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Roadmap Manager — full phase CMS (roadmapPhases/*, shared by all 9      */
+/* leaders, same trust model as roadmapUpdates: any leader may create,     */
+/* edit, delete, publish, or reorder ANY phase). The public site's         */
+/* Roadmap timeline reads this collection directly (see the "Roadmap      */
+/* phase timeline" block in js/main.js) — nothing on that page is         */
+/* hardcoded, so every change here is instant on the live site.           */
+/* ---------------------------------------------------------------------- */
+const STATUS_OPTIONS = ["Planning", "In Progress", "Completed", "Paused", "Cancelled"];
+const PUBLISH_OPTIONS = ["published", "draft", "hidden"];
+
+function slugify(str) {
+  return (str || "").toLowerCase().replace(/\s+/g, "-");
+}
+
+const phaseForm = document.getElementById("phase-form");
+const phaseProgressRange = document.getElementById("phase-progress-range");
+const phaseProgressOut = document.getElementById("phase-progress-out");
+const phaseFormTitle = document.getElementById("phase-form-title");
+const phaseFormSubmit = document.getElementById("phase-form-submit");
+const phaseFormCancel = document.getElementById("phase-form-cancel");
+const phaseFormStatus = document.getElementById("phase-form-status");
+const phaseList = document.getElementById("phase-list");
+
+phaseProgressRange?.addEventListener("input", () => {
+  phaseProgressOut.textContent = phaseProgressRange.value;
+});
+
+function resetPhaseForm() {
+  if (!phaseForm) return;
+  phaseForm.reset();
+  phaseForm.phaseId.value = "";
+  phaseProgressRange.value = 0;
+  phaseProgressOut.textContent = "0";
+  phaseFormTitle.textContent = "Add Roadmap Phase";
+  phaseFormSubmit.textContent = "Create Phase";
+  phaseFormCancel.style.display = "none";
+}
+
+phaseFormCancel?.addEventListener("click", resetPhaseForm);
+
+function populatePhaseFormForEdit(id, p) {
+  if (!phaseForm) return;
+  phaseForm.phaseId.value = id;
+  phaseForm.phaseNumber.value = p.phaseNumber || "";
+  phaseForm.phaseLabel.value = p.phaseLabel || "";
+  phaseForm.title.value = p.title || "";
+  phaseForm.description.value = p.description || "";
+  phaseProgressRange.value = p.progress ?? 0;
+  phaseProgressOut.textContent = String(p.progress ?? 0);
+  phaseForm.status.value = STATUS_OPTIONS.includes(p.status) ? p.status : "Planning";
+  phaseForm.displayOrder.value = p.displayOrder ?? "";
+  phaseForm.published.value = PUBLISH_OPTIONS.includes(p.published) ? p.published : "draft";
+  phaseFormTitle.textContent = `Editing Phase ${p.phaseNumber || ""} — ${p.phaseLabel || ""}`.trim();
+  phaseFormSubmit.textContent = "Save Changes";
+  phaseFormCancel.style.display = "inline-block";
+  phaseForm.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+phaseForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const data = new FormData(phaseForm);
+  const phaseId = (data.get("phaseId") || "").trim();
+
+  const payload = {
+    phaseNumber: (data.get("phaseNumber") || "").trim(),
+    phaseLabel: (data.get("phaseLabel") || "").trim(),
+    title: (data.get("title") || "").trim(),
+    description: (data.get("description") || "").trim(),
+    progress: Math.max(0, Math.min(100, parseInt(data.get("progressRange"), 10) || 0)),
+    status: STATUS_OPTIONS.includes(data.get("status")) ? data.get("status") : "Planning",
+    displayOrder: parseInt(data.get("displayOrder"), 10) || 0,
+    published: PUBLISH_OPTIONS.includes(data.get("published")) ? data.get("published") : "draft",
+    updatedBy: currentUser.uid,
+    updatedByName: currentLeader?.name || "A leader",
+    updatedAt: serverTimestamp(),
+  };
+  if (!payload.title) return;
+
+  phaseFormSubmit.disabled = true;
+  const originalLabel = phaseFormSubmit.textContent;
+  phaseFormSubmit.textContent = "Saving…";
+  try {
+    if (phaseId) {
+      await updateDoc(doc(db, "roadmapPhases", phaseId), payload);
+    } else {
+      await addDoc(collection(db, "roadmapPhases"), {
+        ...payload,
+        createdBy: currentUser.uid,
+        createdByName: currentLeader?.name || "A leader",
+        createdAt: serverTimestamp(),
+        deleted: false,
+      });
+    }
+    resetPhaseForm();
+    phaseFormStatus.textContent = phaseId ? "Phase updated — now live wherever it's published." : "Phase created.";
+    phaseFormStatus.className = "form-status success";
+  } catch (err) {
+    console.error(err);
+    phaseFormStatus.textContent = "Couldn't save this phase. Please try again.";
+    phaseFormStatus.className = "form-status error";
+  } finally {
+    phaseFormSubmit.disabled = false;
+    phaseFormSubmit.textContent = originalLabel;
+  }
+});
+
+const phasePreviewOverlay = document.getElementById("phase-preview-overlay");
+const phasePreviewBody = document.getElementById("phase-preview-body");
+document.getElementById("phase-preview-close")?.addEventListener("click", () => {
+  phasePreviewOverlay.classList.remove("open");
+});
+phasePreviewOverlay?.addEventListener("click", (e) => {
+  if (e.target === phasePreviewOverlay) phasePreviewOverlay.classList.remove("open");
+});
+
+function openPhasePreview(p) {
+  const pct = Math.max(0, Math.min(100, Number(p.progress) || 0));
+  const heading = [p.phaseNumber ? `Phase ${escapeHtml(p.phaseNumber)}` : "", escapeHtml(p.phaseLabel || "")]
+    .filter(Boolean)
+    .join(" — ");
+  phasePreviewBody.innerHTML = `
+    ${heading ? `<div class="r-phase">${heading}</div>` : ""}
+    <h3>${escapeHtml(p.title || "")}</h3>
+    ${p.description ? `<p>${escapeHtml(p.description)}</p>` : ""}
+    <div class="roadmap-item-progress">
+      <div class="roadmap-item-progress-track"><div class="roadmap-item-progress-fill" style="width:${pct}%"></div></div>
+      <span class="roadmap-item-progress-pct">${pct}%</span>
+    </div>
+    ${p.published !== "published" ? `<p style="color:var(--silver-dim);font-size:12.5px;margin-top:16px;">This phase is currently <strong>${escapeHtml(p.published)}</strong> and won't show on the live site until it's Published.</p>` : ""}
+  `;
+  phasePreviewOverlay.classList.add("open");
+}
+
+let currentPhaseOrder = []; // [{id, data}] in the order currently rendered — used by drag-and-drop reorder
+
+function watchRoadmapPhases() {
+  if (!phaseList) return;
+
+  onSnapshot(
+    collection(db, "roadmapPhases"),
+    (snap) => {
+      if (snap.empty) {
+        phaseList.innerHTML = `<div class="empty-state">No roadmap phases yet — create the first one above.</div>`;
+        currentPhaseOrder = [];
+        return;
+      }
+
+      const docs = snap.docs
+        .map((d) => ({ id: d.id, data: d.data() }))
+        .sort((a, b) => (a.data.displayOrder ?? 0) - (b.data.displayOrder ?? 0));
+      currentPhaseOrder = docs;
+
+      phaseList.innerHTML = "";
+      docs.forEach(({ id, data: p }) => {
+        const created = p.createdAt?.toDate ? p.createdAt.toDate().toLocaleDateString() : "—";
+        const updated = p.updatedAt?.toDate ? p.updatedAt.toDate().toLocaleString() : "—";
+        const pct = Math.max(0, Math.min(100, Number(p.progress) || 0));
+
+        const item = document.createElement("div");
+        item.className = "phase-item glass";
+        item.draggable = true;
+        item.dataset.phaseId = id;
+        item.innerHTML = `
+          <span class="phase-item-handle" title="Drag to reorder">⠿</span>
+          <div class="phase-item-main">
+            <div class="phase-item-top">
+              <span class="phase-item-phase">Phase ${escapeHtml(p.phaseNumber || "")} — ${escapeHtml(p.phaseLabel || "")}</span>
+              <span class="phase-pill status-${slugify(p.status)}">${escapeHtml(p.status || "Planning")}</span>
+              <span class="phase-pill pub-${p.published || "draft"}">${escapeHtml((p.published || "draft").toUpperCase())}</span>
+              <span class="phase-pill">${pct}%</span>
+            </div>
+            <div class="phase-item-title">${escapeHtml(p.title || "")}</div>
+            ${p.description ? `<div class="phase-item-desc">${escapeHtml(p.description)}</div>` : ""}
+            <div class="phase-item-meta">Order ${p.displayOrder ?? "—"} · Created by ${escapeHtml(p.createdByName || "—")} on ${created} · Last updated by ${escapeHtml(p.updatedByName || "—")} (${updated})</div>
+            <div class="phase-item-actions">
+              <button type="button" class="ann-pin-btn js-phase-preview">Preview</button>
+              <button type="button" class="ann-pin-btn js-phase-edit">Edit</button>
+              <button type="button" class="ann-pin-btn js-phase-duplicate">Duplicate</button>
+              <button type="button" class="ann-pin-btn js-phase-toggle-publish">${p.published === "published" ? "Unpublish" : "Publish"}</button>
+              <button type="button" class="ann-delete-btn js-phase-delete">Delete</button>
+            </div>
+          </div>
+        `;
+
+        item.querySelector(".js-phase-preview").addEventListener("click", () => openPhasePreview(p));
+        item.querySelector(".js-phase-edit").addEventListener("click", () => populatePhaseFormForEdit(id, p));
+
+        item.querySelector(".js-phase-duplicate").addEventListener("click", async () => {
+          try {
+            const maxOrder = currentPhaseOrder.reduce((m, x) => Math.max(m, x.data.displayOrder ?? 0), 0);
+            await addDoc(collection(db, "roadmapPhases"), {
+              phaseNumber: p.phaseNumber || "",
+              phaseLabel: p.phaseLabel || "",
+              title: `${p.title || ""} (Copy)`,
+              description: p.description || "",
+              progress: p.progress ?? 0,
+              status: p.status || "Planning",
+              displayOrder: maxOrder + 1,
+              published: "draft",
+              createdBy: currentUser.uid,
+              createdByName: currentLeader?.name || "A leader",
+              updatedBy: currentUser.uid,
+              updatedByName: currentLeader?.name || "A leader",
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+              deleted: false,
+            });
+          } catch (err) {
+            console.error(err);
+            alert("Couldn't duplicate this phase. Please try again.");
+          }
+        });
+
+        item.querySelector(".js-phase-toggle-publish").addEventListener("click", async () => {
+          try {
+            await updateDoc(doc(db, "roadmapPhases", id), {
+              published: p.published === "published" ? "draft" : "published",
+              updatedBy: currentUser.uid,
+              updatedByName: currentLeader?.name || "A leader",
+              updatedAt: serverTimestamp(),
+            });
+          } catch (err) {
+            console.error(err);
+            alert("Couldn't update publish state. Please try again.");
+          }
+        });
+
+        item.querySelector(".js-phase-delete").addEventListener("click", async () => {
+          if (!confirm("Are you sure you want to permanently delete this roadmap?")) return;
+          try {
+            await deleteDoc(doc(db, "roadmapPhases", id));
+            if (phaseForm.phaseId.value === id) resetPhaseForm();
+          } catch (err) {
+            console.error(err);
+            alert("Couldn't delete this phase. Please try again.");
+          }
+        });
+
+        // Drag-and-drop reorder — dropping a card onto another swaps their
+        // position in currentPhaseOrder, then every displayOrder in the list
+        // is rewritten in one batch so the public timeline (which sorts by
+        // displayOrder) instantly reflects the new sequence.
+        item.addEventListener("dragstart", () => item.classList.add("dragging"));
+        item.addEventListener("dragend", () => {
+          item.classList.remove("dragging");
+          phaseList.querySelectorAll(".phase-item").forEach((el) => el.classList.remove("drag-over"));
+        });
+        item.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          item.classList.add("drag-over");
+        });
+        item.addEventListener("dragleave", () => item.classList.remove("drag-over"));
+        item.addEventListener("drop", async (e) => {
+          e.preventDefault();
+          item.classList.remove("drag-over");
+          const draggingEl = phaseList.querySelector(".phase-item.dragging");
+          if (!draggingEl || draggingEl === item) return;
+
+          const fromId = draggingEl.dataset.phaseId;
+          const toId = item.dataset.phaseId;
+          const ids = currentPhaseOrder.map((x) => x.id);
+          const fromIdx = ids.indexOf(fromId);
+          const toIdx = ids.indexOf(toId);
+          if (fromIdx === -1 || toIdx === -1) return;
+          const reordered = [...currentPhaseOrder];
+          const [moved] = reordered.splice(fromIdx, 1);
+          reordered.splice(toIdx, 0, moved);
+
+          try {
+            const batch = writeBatch(db);
+            reordered.forEach((entry, idx) => {
+              batch.update(doc(db, "roadmapPhases", entry.id), { displayOrder: idx + 1 });
+            });
+            await batch.commit();
+          } catch (err) {
+            console.error(err);
+            alert("Couldn't save the new order. Please try again.");
+          }
+        });
+
+        phaseList.appendChild(item);
+      });
+    },
+    (err) => {
+      const detail = err?.message || err?.code || "unknown error";
+      const urlMatch = detail.match(/https:\/\/console\.firebase\.google\.com\S+/);
+      const detailHtml = urlMatch
+        ? detail.slice(0, urlMatch.index) +
+          `<a href="${urlMatch[0]}" target="_blank" rel="noopener" style="color:#7dd3fc;text-decoration:underline;">Tap here to create the required index</a>` +
+          detail.slice(urlMatch.index + urlMatch[0].length)
+        : detail;
+      phaseList.innerHTML = `<div class="empty-state">Couldn't load roadmap phases.<br><small style="opacity:.7;word-break:break-word;">(${detailHtml})</small></div>`;
       console.error(err);
     }
   );

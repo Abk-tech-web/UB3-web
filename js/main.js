@@ -16,6 +16,7 @@ import {
   orderBy,
   limit,
   onSnapshot,
+  where,
   doc,
   setDoc,
   deleteDoc,
@@ -1909,5 +1910,54 @@ if (roadmapProgressEl) {
       }
     },
     (err) => console.error("Roadmap progress load failed:", err)
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Roadmap phase timeline (public — reads roadmapPhases, CMS-managed from  */
+/* the Leadership Dashboard's Roadmap Manager). Only published phases are  */
+/* shown, sorted by displayOrder client-side (avoids needing a composite   */
+/* Firestore index for an equality filter + a different sort field).      */
+/* Nothing here is hardcoded — an empty collection just renders nothing.   */
+/* ---------------------------------------------------------------------- */
+const roadmapTrackEl = document.getElementById("roadmap-track");
+if (roadmapTrackEl) {
+  onSnapshot(
+    query(collection(db, "roadmapPhases"), where("published", "==", "published")),
+    (snap) => {
+      const phases = snap.docs
+        .map((d) => d.data())
+        .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+
+      if (!phases.length) {
+        roadmapTrackEl.innerHTML = `<div class="roadmap-track-loading">Roadmap phases coming soon.</div>`;
+        return;
+      }
+
+      roadmapTrackEl.innerHTML = phases
+        .map((p, idx) => {
+          const pct = Math.max(0, Math.min(100, Number(p.progress) || 0));
+          const phaseHeading = [p.phaseNumber ? `Phase ${escapeHtml(p.phaseNumber)}` : "", escapeHtml(p.phaseLabel || "")]
+            .filter(Boolean)
+            .join(" — ");
+          return `
+            <div class="roadmap-item reveal" style="transition-delay:${Math.min(idx, 6) * 0.06}s">
+              ${phaseHeading ? `<div class="r-phase">${phaseHeading}</div>` : ""}
+              <h3>${escapeHtml(p.title || "")}</h3>
+              ${p.description ? `<p>${escapeHtml(p.description)}</p>` : ""}
+              <div class="roadmap-item-progress">
+                <div class="roadmap-item-progress-track"><div class="roadmap-item-progress-fill" style="width:${pct}%"></div></div>
+                <span class="roadmap-item-progress-pct">${pct}%</span>
+              </div>
+            </div>`;
+        })
+        .join("");
+
+      roadmapTrackEl.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+    },
+    (err) => {
+      console.error("Roadmap phases load failed:", err);
+      roadmapTrackEl.innerHTML = `<div class="roadmap-track-loading">Couldn't load the roadmap right now.</div>`;
+    }
   );
 }
