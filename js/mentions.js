@@ -13,6 +13,16 @@ function escapeHtml(str) {
   return (str || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// A mention ends the moment the next character isn't a letter/digit —
+// deliberately NOT regex \b here, because \b only recognizes a boundary
+// next to a letter or digit. A display name ending in anything else (™, an
+// emoji, a period, an apostrophe...) would make \b require the FOLLOWING
+// character to ALSO be a letter, so something as ordinary as a trailing
+// space right after the mention would silently break the match. This
+// lookahead has no such blind spot, and behaves identically to \b for
+// ordinary letter-ending names.
+const MENTION_BOUNDARY = "(?![A-Za-z0-9_])";
+
 // Builds the regex source for one leader's name: matches their full name
 // (tolerating any amount of whitespace between words, since a name typed
 // into a post/comment and a name saved from a profile form don't always
@@ -53,7 +63,7 @@ export function findMentionedLeaders(text, leaders) {
   const found = new Map();
   verifiedMentionCandidates(leaders).forEach((l) => {
     const pattern = mentionPatternSource(l.name);
-    if (pattern && new RegExp(`@${pattern}\\b`, "i").test(text)) found.set(l.id, l);
+    if (pattern && new RegExp(`@${pattern}${MENTION_BOUNDARY}`, "i").test(text)) found.set(l.id, l);
   });
   return [...found.values()];
 }
@@ -97,7 +107,7 @@ export function renderMentions(escapedText, mentions, leaders) {
     // it tolerates the leader having since changed their name.
     const pattern = mentionPatternSource(m.name);
     if (!pattern) return;
-    const re = new RegExp(`@${pattern}\\b`, "gi");
+    const re = new RegExp(`@${pattern}${MENTION_BOUNDARY}`, "gi");
     const currentLabel = `@${escapeHtml(slot.name)}`;
     out = out.replace(
       re,
