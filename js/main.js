@@ -1090,38 +1090,39 @@ function renderAnnouncementsFeed() {
 
       return `
         <article class="announcement-card glass reveal${a.pinned ? " pinned" : ""}" data-ann-id="${id}" style="transition-delay:${Math.min(idx, 6) * 0.04}s">
-          ${a.pinned ? `<div class="announcement-pin-badge">${ICONS.pin}Pinned</div>` : ""}
           <div class="announcement-top">
             <div class="announcement-avatar">${announcementAvatar(a)}</div>
             <div class="announcement-who">
               <div class="announcement-name-row">
                 <span class="announcement-name">${escapeHtml(a.authorName || "UB3")}</span>
                 ${authorBadgeHtml(a)}
-                <span class="announcement-meta">
-                  ${a.authorPosition ? `<span class="announcement-role-badge">${escapeHtml(a.authorPosition)}</span><span class="dot">&middot;</span>` : ""}${time}${a.category ? `<span class="dot">&middot;</span><span class="announcement-tag">${escapeHtml(a.category)}</span>` : ""}
-                </span>
               </div>
-
-              <h3 class="announcement-title">${escapeHtml(a.title)}</h3>
-              <p class="announcement-body${needsTruncate ? " clamped js-ann-body" : ""}">${escapeHtml(bodyText)}</p>
-              ${needsTruncate ? `<button type="button" class="announcement-see-more js-see-more">See more</button>` : ""}
-              ${a.imageUrl ? `<img class="announcement-photo" src="${a.imageUrl}" alt="" loading="lazy">` : ""}
-              ${pollHtml(a, id)}
-
-              <div class="announcement-actions">
-                <button type="button" class="announcement-action-btn js-comment-toggle${commentsOpen ? " comments-open" : ""}" data-ann-id="${id}">
-                  <span class="announcement-action-icon">${ICONS.comment}</span>
-                  <span class="js-comment-count">${commentCount}</span>
-                </button>
-                <button type="button" class="announcement-action-btn js-share-btn" data-ann-id="${id}">
-                  <span class="announcement-action-icon">${ICONS.share}</span>
-                </button>
-                ${reactionButtonHtml(a, id)}
-                <button type="button" class="announcement-action-btn announcement-bookmark-btn js-bookmark-btn${bookmarked ? " active" : ""}" data-ann-id="${id}" title="${bookmarked ? "Remove bookmark" : "Save for later"}">
-                  <span class="announcement-action-icon">${bookmarked ? ICONS.bookmarkFilled : ICONS.bookmark}</span>
-                </button>
+              <div class="announcement-submeta">
+                ${a.authorPosition ? `<span class="announcement-role-badge">${escapeHtml(a.authorPosition)}</span>` : ""}
+                <span class="announcement-meta">${time}${a.category ? `<span class="dot">&middot;</span><span class="announcement-tag">${escapeHtml(a.category)}</span>` : ""}</span>
               </div>
             </div>
+            ${a.pinned ? `<div class="announcement-pin-badge">${ICONS.pin}Pinned</div>` : ""}
+          </div>
+
+          <h3 class="announcement-title">${escapeHtml(a.title)}</h3>
+          <p class="announcement-body${needsTruncate ? " clamped js-ann-body" : ""}">${escapeHtml(bodyText)}</p>
+          ${needsTruncate ? `<button type="button" class="announcement-see-more js-see-more">See more</button>` : ""}
+          ${a.imageUrl ? `<img class="announcement-photo" src="${a.imageUrl}" alt="" loading="lazy">` : ""}
+          ${pollHtml(a, id)}
+
+          <div class="announcement-actions">
+            <button type="button" class="announcement-action-btn js-comment-toggle${commentsOpen ? " comments-open" : ""}" data-ann-id="${id}">
+              <span class="announcement-action-icon">${ICONS.comment}</span>
+              <span class="js-comment-count">${commentCount}</span>
+            </button>
+            <button type="button" class="announcement-action-btn js-share-btn" data-ann-id="${id}">
+              <span class="announcement-action-icon">${ICONS.share}</span>
+            </button>
+            ${reactionButtonHtml(a, id)}
+            <button type="button" class="announcement-action-btn announcement-bookmark-btn js-bookmark-btn${bookmarked ? " active" : ""}" data-ann-id="${id}" title="${bookmarked ? "Remove bookmark" : "Save for later"}">
+              <span class="announcement-action-icon">${bookmarked ? ICONS.bookmarkFilled : ICONS.bookmark}</span>
+            </button>
           </div>
 
           <div class="announcement-comments${commentsOpen ? " open" : ""}" data-ann-id="${id}">
