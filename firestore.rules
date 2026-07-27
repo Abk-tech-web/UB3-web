@@ -102,6 +102,56 @@ service cloud.firestore {
                     && exists(/databases/$(database)/documents/leaders/$(request.auth.uid));
     }
 
+    // ---- roadmapPhases/{phaseId} ----------------------------------------
+    // Full CMS entries behind the public Roadmap timeline. Visitors may only
+    // read a phase once it's published; drafts and hidden phases are only
+    // readable by a signed-in, registered leader (so the dashboard's "All
+    // Roadmap Entries" list can show them, but nobody else can). Any of the
+    // 9 leaders may create/edit/delete/publish/reorder ANY phase — same
+    // shared-team trust model as roadmapUpdates above, not just the phase's
+    // own author. displayOrder has no uniqueness constraint enforced here
+    // (drag-reorder writes a batch of updates; a duplicate/transient value
+    // mid-batch is harmless since the client always re-sorts by it).
+    match /roadmapPhases/{phaseId} {
+      allow read: if resource.data.published == 'published'
+                  || (request.auth != null
+                      && exists(/databases/$(database)/documents/leaders/$(request.auth.uid)));
+      allow create: if request.auth != null
+                    && exists(/databases/$(database)/documents/leaders/$(request.auth.uid))
+                    && request.resource.data.keys().hasAll(
+                        ['phaseNumber', 'phaseLabel', 'title', 'description', 'progress', 'status',
+                         'displayOrder', 'published', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'deleted'])
+                    && request.resource.data.createdBy == request.auth.uid
+                    && request.resource.data.updatedBy == request.auth.uid
+                    && request.resource.data.deleted == false
+                    && isValidRoadmapPhaseContent();
+      allow update: if request.auth != null
+                    && exists(/databases/$(database)/documents/leaders/$(request.auth.uid))
+                    && request.resource.data.createdBy == resource.data.createdBy
+                    && request.resource.data.updatedBy == request.auth.uid
+                    && isValidRoadmapPhaseContent();
+      allow delete: if request.auth != null
+                    && exists(/databases/$(database)/documents/leaders/$(request.auth.uid));
+
+      function isValidRoadmapPhaseContent() {
+        return request.resource.data.phaseNumber is string
+            && request.resource.data.phaseNumber.size() <= 10
+            && request.resource.data.phaseLabel is string
+            && request.resource.data.phaseLabel.size() <= 60
+            && request.resource.data.title is string
+            && request.resource.data.title.size() > 0
+            && request.resource.data.title.size() <= 200
+            && request.resource.data.description is string
+            && request.resource.data.description.size() <= 2000
+            && request.resource.data.progress is int
+            && request.resource.data.progress >= 0
+            && request.resource.data.progress <= 100
+            && request.resource.data.status in ['Planning', 'In Progress', 'Completed', 'Paused', 'Cancelled']
+            && request.resource.data.displayOrder is int
+            && request.resource.data.published in ['published', 'draft', 'hidden'];
+      }
+    }
+
     // ---- messages/{messageId} -----------------------------------------
     // Visitors (unauthenticated) can create a message for a leader or the
     // general inbox. A leader can read/mark-as-read messages addressed to
