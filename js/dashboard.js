@@ -26,7 +26,8 @@ import {
   serverTimestamp,
   writeBatch,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { initials } from "./leaders-data.js";
+import { LEADERS, initials } from "./leaders-data.js";
+import { attachMentionAutocomplete, findMentionedLeaders } from "./mentions.js";
 
 // Max size we allow the final base64 photo string to be. Photos are stored
 // directly inside the leader's Firestore document (no Firebase Storage /
@@ -114,6 +115,42 @@ async function photoFileToStoredURL(file, maxDimension = PHOTO_MAX_DIMENSION, ma
 let currentUser = null;
 let currentLeader = null;
 
+// Hydrates the LEADERS roster (from leaders-data.js) with each slot's live
+// uid/photo/etc, same merge main.js does for the public site — needed here
+// so the post composer's @mention autocomplete only ever offers verified
+// leaders (a claimed portal account), never an unclaimed roster slot.
+function normalizePosition(pos) {
+  return (pos || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+async function loadLeaderRoster() {
+  try {
+    const snap = await getDocs(collection(db, "leaders"));
+    const byPosition = new Map();
+    snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      const key = normalizePosition(data.position);
+      if (key) byPosition.set(key, { ...data, uid: docSnap.id });
+    });
+    LEADERS.forEach((slot) => {
+      const live = byPosition.get(normalizePosition(slot.position));
+      if (!live) return;
+      slot.uid = live.uid;
+      if (live.name) slot.name = live.name;
+      if (live.photoURL) slot.photo = live.photoURL;
+    });
+  } catch (err) {
+    console.warn("Could not load leader roster for @mention autocomplete:", err);
+  }
+}
+
+// Wires "@" autocomplete + role-aware suggestions onto the post composer's
+// message box — same recognition rules used on the public site, so a post
+// created here highlights + links its mentions identically once published.
+function setupAnnouncementMentionAutocomplete() {
+  const textarea = document.querySelector("#announcement-form textarea[name='body']");
+  attachMentionAutocomplete(textarea, { getLeaders: () => LEADERS, initials, escapeHtml });
+}
+
 /* ---------------------------------------------------------------------- */
 /* Auth guard                                                              */
 /* ---------------------------------------------------------------------- */
@@ -151,6 +188,7 @@ onAuthStateChanged(auth, async (user) => {
     watchMyAnnouncements();
     watchRoadmapUpdates();
     watchRoadmapPhases();
+    loadLeaderRoster().then(setupAnnouncementMentionAutocomplete);
   } else {
     enterVisitorMode(user);
   }
@@ -607,9 +645,15 @@ document.getElementById("announcement-form")?.addEventListener("submit", async (
       poll = { question, options, votes: options.map(() => 0) };
     }
 
+    const bodyVal = (data.get("body") || "").trim();
+    // Snapshot {id, name} for every verified leader @-mentioned in this
+    // post, so the mention keeps working (and pointing at the right
+    // profile) even if that leader later changes their display name.
+    const mentionedNow = findMentionedLeaders(bodyVal, LEADERS).map((l) => ({ id: l.id, name: l.name }));
+
     const payload = {
       title: (data.get("title") || "").trim(),
-      body: (data.get("body") || "").trim(),
+      body: bodyVal,
       pinned: data.get("pinned") === "on",
       category,
       authorId: currentUser.uid,
@@ -622,6 +666,7 @@ document.getElementById("announcement-form")?.addEventListener("submit", async (
     };
     if (pendingAnnPhotoDataURL) payload.imageUrl = pendingAnnPhotoDataURL;
     if (poll) payload.poll = poll;
+    if (mentionedNow.length) payload.mentions = mentionedNow;
     await addDoc(collection(db, "announcements"), payload);
     status.textContent = "Announcement posted — it's now live on the homepage.";
     status.className = "form-status success";

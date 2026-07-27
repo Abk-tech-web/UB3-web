@@ -32,6 +32,21 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { LEADERS, initials } from "./leaders-data.js";
 import { ICONS } from "./icons.js";
+import {
+  verifiedMentionCandidates,
+  findMentionedLeaders as findMentionedLeadersIn,
+  renderMentions as renderMentionsIn,
+} from "./mentions.js";
+
+// Thin wrappers so the rest of this file can keep calling
+// findMentionedLeaders(text) / renderMentions(escapedText, mentions) without
+// threading LEADERS through every call site.
+function findMentionedLeaders(text) {
+  return findMentionedLeadersIn(text, LEADERS);
+}
+function renderMentions(escapedText, mentions) {
+  return renderMentionsIn(escapedText, mentions, LEADERS);
+}
 
 /* ---------------------------------------------------------------------- */
 /* Live leader accounts                                                    */
@@ -708,58 +723,6 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-// Every leader whose roster name can currently be @-mentioned, longest
-// name first — so "@Abdulkadeer" is never partially matched by a shorter
-// name that happens to be one of its prefixes.
-function mentionCandidates() {
-  return LEADERS.filter((l) => l.name).sort((a, b) => b.name.length - a.name.length);
-}
-
-// Builds the regex source for one leader's name: matches their full name
-// (tolerating any amount of whitespace between words, since a name typed
-// into a comment and a name saved from a profile form don't always agree
-// on spacing), OR just their first name on its own — a leader's live
-// dashboard profile can change or add a surname at any time, so requiring
-// an exact full-name match would silently break the moment that happens.
-function mentionPatternSource(name) {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return null;
-  const full = words.map(escapeRegex).join("\\s+");
-  const first = escapeRegex(words[0]);
-  return words.length > 1 ? `(?:${full}|${first})` : full;
-}
-
-// Finds every leader @-mentioned in a comment/reply body (case-insensitive,
-// whole-word), deduped by leader id. Used right after a comment is posted
-// to decide who to notify.
-function findMentionedLeaders(text) {
-  if (!text) return [];
-  const found = new Map();
-  mentionCandidates().forEach((l) => {
-    const pattern = mentionPatternSource(l.name);
-    if (pattern && new RegExp(`@${pattern}\\b`, "i").test(text)) found.set(l.id, l);
-  });
-  return [...found.values()];
-}
-
-// Highlights every recognized @mention in an already-escapeHtml'd comment
-// body, same idea as the blue @mentions on Facebook/X — operates on the
-// escaped text, so it's safe even though it's building HTML.
-function renderMentions(escapedText) {
-  let out = escapedText;
-  mentionCandidates().forEach((l) => {
-    const pattern = mentionPatternSource(l.name);
-    if (!pattern) return;
-    const re = new RegExp(`@${pattern}\\b`, "gi");
-    out = out.replace(re, (m) => `<span class="comment-mention">${m}</span>`);
-  });
-  return out;
-}
-
 /* -- anonymous visitor identity (device-scoped, no login) ---------------- */
 function getDeviceId() {
   let id = localStorage.getItem("ub3_device_id");
@@ -1093,13 +1056,25 @@ function renderAnnouncementsFeed() {
       const commentsOpen = openCommentThreads.has(id);
       const bookmarked = bookmarks.has(id);
 
+      // Every post author is one of the 9 leader accounts, but only shows
+      // as clickable once their portal account has actually claimed the
+      // slot (leaderSlot.uid) — same verified-only gate used for comments
+      // and mentions everywhere else on the site.
+      const leaderSlot = LEADERS.find((l) => l.uid && l.uid === a.authorId);
+      const avatarHtml = leaderSlot
+        ? `<button type="button" class="announcement-avatar js-comment-leader-link" data-open-profile="${leaderSlot.id}" aria-label="View ${escapeHtml(leaderSlot.name)}'s profile">${announcementAvatar(a)}</button>`
+        : `<div class="announcement-avatar">${announcementAvatar(a)}</div>`;
+      const authorNameHtml = leaderSlot
+        ? `<button type="button" class="announcement-name js-comment-leader-link" data-open-profile="${leaderSlot.id}" aria-label="View ${escapeHtml(leaderSlot.name)}'s profile">${escapeHtml(a.authorName || "UB3")}</button>`
+        : `<span class="announcement-name">${escapeHtml(a.authorName || "UB3")}</span>`;
+
       return `
         <article class="announcement-card glass reveal${a.pinned ? " pinned" : ""}" data-ann-id="${id}" style="transition-delay:${Math.min(idx, 6) * 0.04}s">
           <div class="announcement-top">
-            <div class="announcement-avatar">${announcementAvatar(a)}</div>
+            ${avatarHtml}
             <div class="announcement-who">
               <div class="announcement-name-row">
-                <span class="announcement-name">${escapeHtml(a.authorName || "UB3")}</span>
+                ${authorNameHtml}
                 ${authorBadgeHtml(a)}
               </div>
               ${a.authorPosition ? `
@@ -1120,7 +1095,7 @@ function renderAnnouncementsFeed() {
           </div>
 
           <h3 class="announcement-title">${escapeHtml(a.title)}</h3>
-          <p class="announcement-body${needsTruncate ? " clamped js-ann-body" : ""}">${escapeHtml(bodyText)}</p>
+          <p class="announcement-body${needsTruncate ? " clamped js-ann-body" : ""}">${renderMentions(escapeHtml(bodyText), a.mentions)}</p>
           ${needsTruncate ? `<button type="button" class="announcement-see-more js-see-more">See more</button>` : ""}
           ${a.imageUrl ? `<img class="announcement-photo" src="${a.imageUrl}" alt="" loading="lazy">` : ""}
           ${pollHtml(a, id)}
@@ -1195,11 +1170,12 @@ if (announcementsList) {
     }
   );
 
-  /* -- click a verified leader's avatar/name in a comment -> their public */
-  /*    profile (same modal as "View Profile" in the Leadership grid).     */
-  /*    No sign-in required — anyone who can see the comment can view it.  */
+  /* -- click a verified leader's avatar/name (on a post OR a comment), or */
+  /*    a highlighted @mention of one, -> their public profile (same modal */
+  /*    as "View Profile" in the Leadership grid). No sign-in required —   */
+  /*    anyone who can see the post/comment can view it.                   */
   announcementsList.addEventListener("click", (e) => {
-    const btn = e.target.closest(".js-comment-leader-link");
+    const btn = e.target.closest(".js-comment-leader-link, .js-mention-link");
     if (!btn) return;
     openLeaderModal(btn.dataset.openProfile);
   });
@@ -1513,9 +1489,14 @@ if (announcementsList) {
       // prefer that over the (possibly empty) Auth displayName.
       const leaderSlot = LEADERS.find((l) => l.uid && l.uid === uid);
       const nameVal = leaderSlot?.name || visitorDisplayName || "Visitor";
+      // Snapshot {id, name} for every verified leader @-mentioned right
+      // now, so the mention keeps rendering (and pointing at the right
+      // profile) even if that leader later changes their display name.
+      const mentionedNow = findMentionedLeaders(bodyVal).map((l) => ({ id: l.id, name: l.name }));
       const payload = { uid, name: nameVal, body: bodyVal, createdAt: serverTimestamp() };
       if (parentId) payload.parentId = parentId;
       if (visitorPhotoURL) payload.photoURL = visitorPhotoURL;
+      if (mentionedNow.length) payload.mentions = mentionedNow;
       await addDoc(collection(db, "announcements", id, "comments"), payload);
       await updateDoc(doc(db, "announcements", id), { commentCount: increment(1) });
 
@@ -1599,7 +1580,10 @@ if (announcementsList) {
   }
 
   function openMentionDropdown(textarea, query) {
-    const matches = mentionCandidates()
+    // Only verified leaders (a claimed portal account) ever show up in the
+    // autocomplete — matches the same gate used to decide whether a
+    // mention gets highlighted + linked once posted.
+    const matches = verifiedMentionCandidates(LEADERS)
       .filter((l) => l.name.toLowerCase().startsWith(query.toLowerCase()))
       .slice(0, 5);
     closeMentionDropdown();
@@ -1612,7 +1596,10 @@ if (announcementsList) {
         (l) => `
         <button type="button" class="mention-dropdown-item" data-name="${escapeHtml(l.name)}">
           <span class="mention-dropdown-avatar">${l.photo ? `<img src="${l.photo}" alt="">` : initials(l.name)}</span>
-          <span>${escapeHtml(l.name)}</span>
+          <span class="mention-dropdown-info">
+            <span class="mention-dropdown-name">${escapeHtml(l.name)}</span>
+            ${l.position ? `<span class="mention-dropdown-role">${escapeHtml(l.position)}</span>` : ""}
+          </span>
         </button>`
       )
       .join("");
@@ -1677,9 +1664,13 @@ if (announcementsList) {
       saveBtn.dataset.busy = "1";
       saveBtn.disabled = true;
       try {
+        // Recompute the mentions snapshot too, so editing in a new
+        // @mention (or removing one) updates who it links to right away.
+        const mentionedNow = findMentionedLeaders(newBody).map((l) => ({ id: l.id, name: l.name }));
         await updateDoc(doc(db, "announcements", annId, "comments", commentId), {
           body: newBody,
           editedAt: serverTimestamp(),
+          mentions: mentionedNow,
         });
         loadComments(annId);
       } catch (err) {
@@ -1867,7 +1858,7 @@ function renderCommentHtml(c, annId, ownUid, likedComments, isReply, repliesHtml
       ${avatarHtml}
       <div class="comment-body-wrap">
         ${nameHtml}
-        <div class="comment-text js-comment-text">${renderMentions(escapeHtml(c.body || ""))}</div>
+        <div class="comment-text js-comment-text">${renderMentions(escapeHtml(c.body || ""), c.mentions)}</div>
         <textarea class="js-comment-edit-input" maxlength="1000">${escapeHtml(c.body || "")}</textarea>
 
         <div class="comment-meta-row">
