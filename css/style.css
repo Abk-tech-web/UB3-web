@@ -463,7 +463,7 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
 
 /* Row 1 — username has layout priority; badges never shrink or push it out */
 .announcement-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 17.5px; line-height: 1.3; min-width: 0; }
-.announcement-name { flex: 1 1 auto; min-width: 0; font-weight: 800; color: var(--white); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.announcement-name { flex: 0 1 auto; min-width: 0; font-weight: 800; color: var(--white); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .announcement-name-row .badge-btn { margin-left: 0; flex-shrink: 0; }
 .announcement-name-row .verified-badge,
 .announcement-name-row .affiliate-badge { width: 1.4em; height: 1.4em; flex-shrink: 0; }
@@ -582,8 +582,9 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
 
 /* -- long-press emoji reaction picker ------------------------------------ */
 .reaction-picker {
-  position: absolute; bottom: calc(100% + 10px); left: 0; display: flex; gap: 4px;
-  background: var(--surface-strong); border: 1px solid var(--surface-border-strong); border-radius: 999px;
+  position: absolute; bottom: calc(100% + 10px); left: 0; display: flex; gap: 4px; flex-wrap: wrap;
+  max-width: min(320px, calc(100vw - 40px));
+  background: var(--surface-strong); border: 1px solid var(--surface-border-strong); border-radius: 20px;
   padding: 6px; box-shadow: 0 10px 30px rgba(0,0,0,0.4); opacity: 0; transform: translateY(6px) scale(0.9);
   transform-origin: bottom left; transition: opacity 0.15s var(--ease), transform 0.15s var(--ease); z-index: 20;
 }
