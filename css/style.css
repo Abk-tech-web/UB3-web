@@ -668,6 +668,32 @@ button.comment-name:focus-visible {
 .comment-text { font-size: 13.5px; color: var(--silver); line-height: 1.55; white-space: pre-line; word-break: break-word; }
 .comment-mention { color: var(--cyan-glow); font-weight: 600; }
 
+/* -- clickable @mention of a verified leader (in a post OR a comment) --- */
+button.comment-mention.js-mention-link {
+  border: none; background: none; padding: 0; margin: 0; font: inherit;
+  font-weight: 600; color: var(--cyan-glow); cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+button.comment-mention.js-mention-link:hover { text-decoration: underline; }
+button.comment-mention.js-mention-link:focus-visible {
+  outline: 2px solid var(--cyan-glow); outline-offset: 2px; border-radius: 3px;
+}
+
+/* -- clickable leader avatar/name on a post -> their public profile ----- */
+button.announcement-avatar,
+button.announcement-name {
+  border: none; margin: 0; padding: 0; font: inherit; text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+button.announcement-avatar { background: var(--grad-primary); }
+button.announcement-name { background: none; color: var(--white); }
+button.announcement-avatar:hover,
+button.announcement-name:hover { color: var(--cyan-glow); }
+button.announcement-name:hover { text-decoration: underline; }
+button.announcement-avatar:focus-visible,
+button.announcement-name:focus-visible {
+  outline: 2px solid var(--cyan-glow); outline-offset: 2px; border-radius: 4px;
+}
+
 /* -- @mention autocomplete dropdown -------------------------------------- */
 .mention-dropdown {
   position: absolute; z-index: 30; background: var(--surface-strong);
@@ -686,6 +712,9 @@ button.comment-name:focus-visible {
   font-size: 10px; font-weight: 700; color: var(--silver-dim);
 }
 .mention-dropdown-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.mention-dropdown-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.mention-dropdown-name { font-size: 13px; font-weight: 600; color: var(--white); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-dropdown-role { font-size: 11px; font-weight: 500; color: var(--silver-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .comment-empty { font-size: 13px; color: var(--silver-dim); }
 
 .comment-meta-row { display: flex; align-items: center; gap: 14px; margin-top: 5px; flex-wrap: wrap; }
@@ -781,7 +810,7 @@ button.comment-name:focus-visible {
 
 .contact-form-card { padding: 36px; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
-.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; position: relative; }
 .field label { font-size: 12.5px; color: var(--silver-dim); font-family: var(--font-mono); }
 .field input, .field textarea, .field select {
   background: var(--surface); border: 1px solid var(--surface-border); border-radius: var(--radius-sm);
