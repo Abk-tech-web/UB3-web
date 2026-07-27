@@ -1099,10 +1099,14 @@ function renderAnnouncementsFeed() {
               </div>
               <div class="announcement-submeta">
                 ${a.authorPosition ? `<span class="announcement-role-badge">${escapeHtml(a.authorPosition)}</span>` : ""}
-                <span class="announcement-meta">${time}${a.category ? `<span class="dot">&middot;</span><span class="announcement-tag">${escapeHtml(a.category)}</span>` : ""}</span>
+                <span class="announcement-meta">${time}</span>
               </div>
             </div>
-            ${a.pinned ? `<div class="announcement-pin-badge">${ICONS.pin}Pinned</div>` : ""}
+            ${a.pinned || a.category ? `
+            <div class="announcement-top-badges">
+              ${a.pinned ? `<span class="announcement-pin-badge">${ICONS.pin}Pinned</span>` : ""}
+              ${a.category ? `<span class="announcement-tag">${escapeHtml(a.category)}</span>` : ""}
+            </div>` : ""}
           </div>
 
           <h3 class="announcement-title">${escapeHtml(a.title)}</h3>
