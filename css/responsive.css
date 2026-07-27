@@ -23,7 +23,15 @@
   .form-row { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 480px) {
+  .navbar .container { padding: 0 16px; }
+  .nav-inner { gap: 10px; }
+  .nav-actions { gap: 8px; }
+  .nav-actions .btn-sm { padding: 9px 14px; font-size: 12.5px; }
+  .brand { gap: 8px; }
+  .brand-name { font-size: 17px; }
+}
+
   section { padding: 80px 0; }
   .hero { min-height: unset; padding-bottom: 60px; }
   .hero h1 { font-size: clamp(32px, 9vw, 44px); }

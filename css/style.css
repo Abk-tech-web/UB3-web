@@ -184,14 +184,17 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
 }
 [data-theme="light"] .navbar.scrolled { background: rgba(245,247,250,0.78); }
 
-.nav-inner { display: flex; align-items: center; justify-content: space-between; width: 100%; }
-.brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 700; font-size: 19px; letter-spacing: -0.01em; overflow: visible; }
+.nav-inner { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 16px; }
+.brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 700; font-size: 19px; letter-spacing: -0.01em; overflow: visible; flex-shrink: 0; }
 .brand-mark {
   height: 32px; width: auto; max-width: none;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0; overflow: visible;
 }
 .brand-mark img { height: 100%; width: auto; max-width: none; object-fit: contain; display: block; }
+.brand-mark .logo-light { display: none; }
+[data-theme="light"] .brand-mark .logo-dark { display: none; }
+[data-theme="light"] .brand-mark .logo-light { display: block; }
 .brand-name { color: var(--white); white-space: nowrap; flex-shrink: 0; line-height: 1; }
 
 .nav-links { display: flex; align-items: center; gap: 34px; }
