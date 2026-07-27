@@ -647,6 +647,20 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
 .comment-name { font-size: 13px; font-weight: 600; color: var(--white); }
 .comment-name-row { display: flex; align-items: center; gap: 0; flex-wrap: wrap; font-size: 13px; }
 .comment-name-row .comment-name { font-weight: 600; }
+
+/* -- clickable leader avatar/name in comments -> their public profile --- */
+button.comment-avatar,
+button.comment-name {
+  border: none; margin: 0; padding: 0; font: inherit; text-align: left; cursor: pointer;
+  background: var(--surface-strong); color: var(--white); -webkit-tap-highlight-color: transparent;
+}
+button.comment-name { background: none; color: var(--white); }
+button.comment-avatar:hover,
+button.comment-name:hover { color: var(--cyan-glow); }
+button.comment-avatar:focus-visible,
+button.comment-name:focus-visible {
+  outline: 2px solid var(--cyan-glow); outline-offset: 2px; border-radius: 4px;
+}
 .comment-role-badge {
   display: inline-block; margin-top: 3px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.02em; color: var(--cyan-glow);
   background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 8px; border-radius: 999px;
