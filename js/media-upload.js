@@ -137,9 +137,10 @@ function assertCloudinaryConfigured() {
   }
 }
 
-// Uploads a Blob/File to Cloudinary, reporting 0-100 progress via
+// Uploads a Blob/File to Cloudinary in one shot, reporting 0-100 progress via
 // onProgress. Uses XHR (not fetch) specifically because fetch has no
-// built-in upload-progress event.
+// built-in upload-progress event. Used for images (always small enough that
+// a single request is fine).
 export function uploadFileWithProgress(path, blob, onProgress, resourceType = "auto") {
   return new Promise((resolve, reject) => {
     assertCloudinaryConfigured();
@@ -177,6 +178,101 @@ export function uploadFileWithProgress(path, blob, onProgress, resourceType = "a
     xhr.onerror = () => reject(new Error("Upload failed — check your connection and try again."));
     xhr.send(formData);
   });
+}
+
+// ----------------------------------------------------------------------------
+// Chunked upload — splits large files into pieces (default 6MB) and uploads
+// them sequentially using Cloudinary's chunked-upload protocol (same /upload
+// endpoint, with X-Unique-Upload-Id + Content-Range headers on each piece).
+//
+// Why: some mobile networks/carrier proxies silently kill or reset a single
+// large POST request partway through, while the exact same bytes sent as
+// several smaller requests go through fine. Splitting into chunks means a
+// dropped connection only has to retry one small piece instead of failing
+// the whole upload and forcing the user to start over from 0%.
+//
+// Used for videos; images stay on the simple single-request path above since
+// they're always well under a chunk size anyway.
+// ----------------------------------------------------------------------------
+const CHUNK_SIZE = 6 * 1024 * 1024; // 6MB per chunk
+const CHUNK_MAX_RETRIES = 3;
+
+function uploadOneChunk(url, chunk, start, end, total, uploadId, publicId) {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append("file", chunk);
+    formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+    // Same public_id sent with every chunk of this uploadId keeps the final
+    // asset named/organized the same way single-request uploads are.
+    formData.append("public_id", publicId);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url, true);
+    xhr.setRequestHeader("X-Unique-Upload-Id", uploadId);
+    xhr.setRequestHeader("Content-Range", `bytes ${start}-${end - 1}/${total}`);
+
+    xhr.onload = () => {
+      try {
+        const res = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(res);
+        } else {
+          reject(new Error(res?.error?.message || `Chunk upload failed (status ${xhr.status}).`));
+        }
+      } catch (err) {
+        reject(new Error("Chunk upload failed — unexpected response."));
+      }
+    };
+    xhr.onerror = () => reject(new Error("network"));
+    xhr.send(formData);
+  });
+}
+
+async function uploadOneChunkWithRetry(url, chunk, start, end, total, uploadId, publicId) {
+  let lastErr;
+  for (let attempt = 1; attempt <= CHUNK_MAX_RETRIES; attempt++) {
+    try {
+      return await uploadOneChunk(url, chunk, start, end, total, uploadId, publicId);
+    } catch (err) {
+      lastErr = err;
+      // Small backoff before retrying this same chunk — gives a flaky
+      // connection/proxy a moment to recover instead of hammering it.
+      await new Promise((r) => setTimeout(r, 800 * attempt));
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Chunk upload failed after retries.");
+}
+
+// Uploads a large Blob/File to Cloudinary in chunks, reporting 0-100 overall
+// progress via onProgress. Falls back to a normal single-request upload if
+// the file is already smaller than one chunk.
+export async function uploadFileChunked(path, blob, onProgress, resourceType = "video") {
+  assertCloudinaryConfigured();
+
+  if (blob.size <= CHUNK_SIZE) {
+    return uploadFileWithProgress(path, blob, onProgress, resourceType);
+  }
+
+  const url = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`;
+  const uploadId = `ub3-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const total = blob.size;
+  let uploaded = 0;
+  let lastResponse = null;
+
+  for (let start = 0; start < total; start += CHUNK_SIZE) {
+    const end = Math.min(start + CHUNK_SIZE, total);
+    const chunk = blob.slice(start, end);
+    lastResponse = await uploadOneChunkWithRetry(url, chunk, start, end, total, uploadId, path);
+    uploaded = end;
+    if (onProgress) {
+      onProgress(Math.round((uploaded / total) * 100));
+    }
+  }
+
+  if (!lastResponse || !lastResponse.secure_url) {
+    throw new Error("Upload finished but no file URL was returned. Please try again.");
+  }
+  return lastResponse.secure_url;
 }
 
 // Best-effort cleanup placeholder. Cloudinary's unsigned uploads (client-side,

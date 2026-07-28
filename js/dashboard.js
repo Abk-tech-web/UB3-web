@@ -35,6 +35,7 @@ import {
   compressImageFile,
   validateVideoFile,
   uploadFileWithProgress,
+  uploadFileChunked,
   deleteFileByURL,
   postMediaPath,
 } from "./media-upload.js";
@@ -836,7 +837,7 @@ document.getElementById("announcement-form")?.addEventListener("submit", async (
       showProgress(0);
       const ext = (pendingVideo.file.name.split(".").pop() || "mp4").toLowerCase();
       const path = postMediaPath(currentUser.uid, postRef.id, "video", 0, ext);
-      const url = await uploadFileWithProgress(path, pendingVideo.file, showProgress);
+      const url = await uploadFileChunked(path, pendingVideo.file, showProgress);
       payload.video = url;
     }
 
@@ -1197,7 +1198,7 @@ document.getElementById("edit-post-form")?.addEventListener("submit", async (e) 
       showProgress(0);
       const ext = (editVideoState.file.name.split(".").pop() || "mp4").toLowerCase();
       const path = postMediaPath(currentUser.uid, postId, "video", 0, ext);
-      const url = await uploadFileWithProgress(path, editVideoState.file, showProgress);
+      const url = await uploadFileChunked(path, editVideoState.file, showProgress);
       update.video = url;
       update.images = deleteField();
       update.imageUrl = deleteField();
