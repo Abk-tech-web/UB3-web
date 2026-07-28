@@ -404,6 +404,20 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
 .l-socials a:hover { color: var(--cyan-glow); border-color: var(--cyan-glow); }
 .l-socials svg { width: 14px; height: 14px; }
 
+/* ==========================================================================
+   ADMIN PORTAL — Admin Card section (public site). Completely additive:
+   reuses the existing .leader-card/.leader-photo/.l-role/.l-bio building
+   blocks so it matches the Leadership section's design language, plus its
+   own small ADMIN badge. Nothing here overrides the leader rules above.
+   ========================================================================== */
+.admins-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; max-width: 320px; margin: 0 auto; }
+.admin-badge-tag {
+  display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
+  color: #0a0f1e; background: var(--grad-primary, #38bdf8); padding: 2px 8px;
+  border-radius: 999px; font-family: var(--font-mono); vertical-align: middle; margin-left: 8px;
+}
+.whitepaper-download-link { display: inline-flex; align-items: center; gap: 8px; }
+
 /* Leader profile modal */
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(2,4,8,0.72); backdrop-filter: blur(6px);
