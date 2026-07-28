@@ -462,14 +462,38 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeLeaderModal();
 });
 
-/* -- announcement image lightbox — tap a photo to view it full-size, --- */
-/*    matching X's image viewer -------------------------------------------- */
+/* -- announcement media gallery — tap a photo to view it full-size, ---- */
+/*    with next/prev, swipe, and zoom, matching X's image viewer -------- */
 const imgLightbox = document.getElementById("img-lightbox");
 const imgLightboxImg = document.getElementById("img-lightbox-img");
+const imgLightboxPrev = document.getElementById("img-lightbox-prev");
+const imgLightboxNext = document.getElementById("img-lightbox-next");
+const imgLightboxCounter = document.getElementById("img-lightbox-counter");
 
-function openImgLightbox(src) {
+let lightboxImages = [];
+let lightboxIndex = 0;
+let lightboxZoomed = false;
+
+function renderLightboxImage() {
+  if (!imgLightboxImg) return;
+  imgLightboxImg.src = lightboxImages[lightboxIndex] || "";
+  lightboxZoomed = false;
+  imgLightboxImg.classList.remove("zoomed");
+  imgLightboxImg.style.transform = "";
+  const multi = lightboxImages.length > 1;
+  if (imgLightboxPrev) imgLightboxPrev.style.display = multi ? "flex" : "none";
+  if (imgLightboxNext) imgLightboxNext.style.display = multi ? "flex" : "none";
+  if (imgLightboxCounter) {
+    imgLightboxCounter.style.display = multi ? "block" : "none";
+    imgLightboxCounter.textContent = multi ? `${lightboxIndex + 1} / ${lightboxImages.length}` : "";
+  }
+}
+
+function openImgLightbox(images, startIndex = 0) {
   if (!imgLightbox || !imgLightboxImg) return;
-  imgLightboxImg.src = src;
+  lightboxImages = Array.isArray(images) ? images : [images];
+  lightboxIndex = Math.max(0, Math.min(startIndex, lightboxImages.length - 1));
+  renderLightboxImage();
   imgLightbox.classList.add("open");
   document.body.style.overflow = "hidden";
 }
@@ -477,19 +501,84 @@ function closeImgLightbox() {
   if (!imgLightbox) return;
   imgLightbox.classList.remove("open");
   imgLightboxImg.src = "";
+  lightboxImages = [];
   document.body.style.overflow = "";
 }
+function lightboxShowPrev() {
+  if (lightboxImages.length < 2) return;
+  lightboxIndex = (lightboxIndex - 1 + lightboxImages.length) % lightboxImages.length;
+  renderLightboxImage();
+}
+function lightboxShowNext() {
+  if (lightboxImages.length < 2) return;
+  lightboxIndex = (lightboxIndex + 1) % lightboxImages.length;
+  renderLightboxImage();
+}
+
 document.getElementById("announcements-list")?.addEventListener("click", (e) => {
-  const photo = e.target.closest(".announcement-photo");
-  if (photo) openImgLightbox(photo.src);
+  const photo = e.target.closest(".gallery-img[data-ann-id]");
+  if (!photo) return;
+  const annId = photo.getAttribute("data-ann-id");
+  const idx = Number(photo.getAttribute("data-idx") || 0);
+  const images = galleryImagesByAnnId.get(annId) || [photo.src];
+  openImgLightbox(images, idx);
 });
 imgLightbox?.addEventListener("click", (e) => {
   if (e.target === imgLightbox) closeImgLightbox();
 });
 document.getElementById("img-lightbox-close")?.addEventListener("click", closeImgLightbox);
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeImgLightbox();
+imgLightboxPrev?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  lightboxShowPrev();
 });
+imgLightboxNext?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  lightboxShowNext();
+});
+document.addEventListener("keydown", (e) => {
+  if (!imgLightbox?.classList.contains("open")) return;
+  if (e.key === "Escape") closeImgLightbox();
+  if (e.key === "ArrowLeft") lightboxShowPrev();
+  if (e.key === "ArrowRight") lightboxShowNext();
+});
+
+// Double-click / double-tap to toggle a simple zoom.
+imgLightboxImg?.addEventListener("dblclick", () => {
+  lightboxZoomed = !lightboxZoomed;
+  imgLightboxImg.classList.toggle("zoomed", lightboxZoomed);
+  imgLightboxImg.style.transform = lightboxZoomed ? "scale(2)" : "";
+});
+
+// Touch swipe (left/right to navigate when not zoomed, drag to pan when
+// zoomed) — a lightweight alternative to a full gesture library.
+let lbTouchStartX = 0;
+let lbTouchStartY = 0;
+imgLightbox?.addEventListener(
+  "touchstart",
+  (e) => {
+    if (e.touches.length !== 1) return;
+    lbTouchStartX = e.touches[0].clientX;
+    lbTouchStartY = e.touches[0].clientY;
+  },
+  { passive: true }
+);
+imgLightbox?.addEventListener(
+  "touchend",
+  (e) => {
+    if (lightboxZoomed) return;
+    const dx = e.changedTouches[0].clientX - lbTouchStartX;
+    const dy = e.changedTouches[0].clientY - lbTouchStartY;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+      if (dx > 0) lightboxShowPrev();
+      else lightboxShowNext();
+    }
+  },
+  { passive: true }
+);
+
+// Announcement id -> ordered array of image URLs, used to feed the gallery
+// viewer with the full set (not just the one image that was clicked).
+const galleryImagesByAnnId = new Map();
 
 async function handleLeaderMessage(e) {
   e.preventDefault();
@@ -1013,6 +1102,210 @@ document.getElementById("announcement-search")?.addEventListener("input", (e) =>
 const searchIconEl = document.querySelector(".announcement-search-icon");
 if (searchIconEl) searchIconEl.innerHTML = ICONS.search;
 
+// ----------------------------------------------------------------------
+// Photo gallery — 1 image shown normally, 2 side by side, 3 in a grid,
+// 4+ in a responsive grid with a "+X more" overlay on the last tile.
+// Every tile opens the full gallery viewer via the click delegate above.
+// ----------------------------------------------------------------------
+function galleryHtml(images, annId) {
+  const n = images.length;
+  const tile = (src, idx, extraClass = "", overlay = "") => `
+    <div class="gallery-tile ${extraClass}">
+      <img class="gallery-img" src="${src}" data-ann-id="${annId}" data-idx="${idx}" alt="" loading="lazy">
+      ${overlay}
+    </div>`;
+
+  if (n === 1) {
+    return `<div class="announcement-gallery gallery-1">${tile(images[0], 0)}</div>`;
+  }
+  if (n === 2) {
+    return `<div class="announcement-gallery gallery-2">${images.map((src, i) => tile(src, i)).join("")}</div>`;
+  }
+  if (n === 3) {
+    return `<div class="announcement-gallery gallery-3">${images.map((src, i) => tile(src, i)).join("")}</div>`;
+  }
+  // 4 or more: show the first 4 tiles, with a "+X more" overlay on the 4th.
+  const shown = images.slice(0, 4);
+  const remaining = n - 4;
+  return `<div class="announcement-gallery gallery-4plus">
+    ${shown
+      .map((src, i) => {
+        const overlay = i === 3 && remaining > 0 ? `<div class="gallery-more-overlay">+${remaining} more</div>` : "";
+        return tile(src, i, "", overlay);
+      })
+      .join("")}
+  </div>`;
+}
+
+// ----------------------------------------------------------------------
+// Custom video player — play/pause, progress bar (scrub), fullscreen,
+// mute/volume, playback speed, and picture-in-picture where supported.
+// Autoplays muted only while visible (wired up via IntersectionObserver
+// in initVideoPlayers, called after every feed render).
+// ----------------------------------------------------------------------
+function videoPlayerHtml(videoUrl, annId) {
+  return `
+    <div class="ub3-video-player" data-ann-id="${annId}">
+      <video class="ub3-video-el" src="${videoUrl}" playsinline muted loop preload="metadata"></video>
+      <button type="button" class="ub3-video-bigplay" aria-label="Play video"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+      <div class="ub3-video-controls">
+        <button type="button" class="ub3-video-btn ub3-video-play" aria-label="Play/Pause">
+          <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          <svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+        </button>
+        <span class="ub3-video-time">0:00</span>
+        <input type="range" class="ub3-video-seek" min="0" max="100" value="0" step="0.1" aria-label="Seek">
+        <span class="ub3-video-duration">0:00</span>
+        <button type="button" class="ub3-video-btn ub3-video-mute" aria-label="Mute/Unmute">
+          <svg class="icon-vol-on" viewBox="0 0 24 24" fill="currentColor"><path d="M4 9v6h4l5 5V4L8 9H4z"/></svg>
+          <svg class="icon-vol-off" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><path d="M4 9v6h4l5 5V4L8 9H4zm12.7-3.3l-1.4 1.4L17.6 9.4l-2.3 2.3 1.4 1.4 2.3-2.3 2.3 2.3 1.4-1.4-2.3-2.3 2.3-2.3-1.4-1.4-2.3 2.3z"/></svg>
+        </button>
+        <input type="range" class="ub3-video-volume" min="0" max="1" step="0.05" value="1" aria-label="Volume">
+        <div class="ub3-video-speed-wrap">
+          <button type="button" class="ub3-video-btn ub3-video-speed" aria-label="Playback speed">1x</button>
+          <div class="ub3-video-speed-menu">
+            ${[0.5, 1, 1.25, 1.5, 2].map((s) => `<button type="button" class="ub3-video-speed-opt" data-speed="${s}">${s}x</button>`).join("")}
+          </div>
+        </div>
+        <button type="button" class="ub3-video-btn ub3-video-pip" aria-label="Picture in picture">PiP</button>
+        <button type="button" class="ub3-video-btn ub3-video-fullscreen" aria-label="Fullscreen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+        </button>
+      </div>
+    </div>`;
+}
+
+function formatVideoTime(sec) {
+  if (!isFinite(sec) || sec < 0) sec = 0;
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60)
+    .toString()
+    .padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+let videoIO = null;
+// Wires up every custom video player currently in the DOM: control bar
+// behavior plus muted-autoplay-only-while-visible via IntersectionObserver.
+// Safe to call repeatedly (each feed re-render replaces the DOM nodes).
+function initVideoPlayers() {
+  const players = document.querySelectorAll(".ub3-video-player");
+  if (videoIO) videoIO.disconnect();
+  videoIO = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        const video = entry.target.querySelector(".ub3-video-el");
+        if (!video) return;
+        if (entry.isIntersecting && video.muted) {
+          video.play().catch(() => {});
+        } else if (!entry.isIntersecting) {
+          video.pause();
+        }
+      });
+    },
+    { threshold: 0.5 }
+  );
+
+  players.forEach((player) => {
+    const video = player.querySelector(".ub3-video-el");
+    const bigPlay = player.querySelector(".ub3-video-bigplay");
+    const playBtn = player.querySelector(".ub3-video-play");
+    const iconPlay = player.querySelector(".icon-play");
+    const iconPause = player.querySelector(".icon-pause");
+    const seek = player.querySelector(".ub3-video-seek");
+    const time = player.querySelector(".ub3-video-time");
+    const duration = player.querySelector(".ub3-video-duration");
+    const muteBtn = player.querySelector(".ub3-video-mute");
+    const iconVolOn = player.querySelector(".icon-vol-on");
+    const iconVolOff = player.querySelector(".icon-vol-off");
+    const volume = player.querySelector(".ub3-video-volume");
+    const speedBtn = player.querySelector(".ub3-video-speed");
+    const speedMenu = player.querySelector(".ub3-video-speed-menu");
+    const pipBtn = player.querySelector(".ub3-video-pip");
+    const fsBtn = player.querySelector(".ub3-video-fullscreen");
+    if (!video) return;
+
+    const syncPlayIcon = () => {
+      const playing = !video.paused && !video.ended;
+      if (iconPlay) iconPlay.style.display = playing ? "none" : "";
+      if (iconPause) iconPause.style.display = playing ? "" : "none";
+      if (bigPlay) bigPlay.style.display = playing ? "none" : "flex";
+    };
+    const togglePlay = () => (video.paused ? video.play().catch(() => {}) : video.pause());
+    playBtn?.addEventListener("click", togglePlay);
+    bigPlay?.addEventListener("click", togglePlay);
+    video.addEventListener("click", togglePlay);
+    video.addEventListener("play", syncPlayIcon);
+    video.addEventListener("pause", syncPlayIcon);
+    syncPlayIcon();
+
+    video.addEventListener("loadedmetadata", () => {
+      if (duration) duration.textContent = formatVideoTime(video.duration);
+    });
+    video.addEventListener("timeupdate", () => {
+      if (time) time.textContent = formatVideoTime(video.currentTime);
+      if (seek && video.duration) seek.value = String((video.currentTime / video.duration) * 100);
+    });
+    seek?.addEventListener("input", () => {
+      if (video.duration) video.currentTime = (Number(seek.value) / 100) * video.duration;
+    });
+
+    const syncMuteIcon = () => {
+      const muted = video.muted || video.volume === 0;
+      if (iconVolOn) iconVolOn.style.display = muted ? "none" : "";
+      if (iconVolOff) iconVolOff.style.display = muted ? "" : "none";
+    };
+    muteBtn?.addEventListener("click", () => {
+      video.muted = !video.muted;
+      if (!video.muted && video.volume === 0) video.volume = 1;
+      syncMuteIcon();
+    });
+    volume?.addEventListener("input", () => {
+      video.volume = Number(volume.value);
+      video.muted = video.volume === 0;
+      syncMuteIcon();
+    });
+    syncMuteIcon();
+
+    speedBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      speedMenu?.classList.toggle("open");
+    });
+    speedMenu?.querySelectorAll(".ub3-video-speed-opt").forEach((opt) => {
+      opt.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const rate = Number(opt.getAttribute("data-speed"));
+        video.playbackRate = rate;
+        if (speedBtn) speedBtn.textContent = `${rate}x`;
+        speedMenu.classList.remove("open");
+      });
+    });
+
+    pipBtn?.addEventListener("click", async () => {
+      try {
+        if (document.pictureInPictureElement) {
+          await document.exitPictureInPicture();
+        } else if (document.pictureInPictureEnabled) {
+          await video.requestPictureInPicture();
+        }
+      } catch (err) {
+        console.warn("Picture-in-picture unavailable:", err?.message || err);
+      }
+    });
+
+    fsBtn?.addEventListener("click", () => {
+      if (video.requestFullscreen) video.requestFullscreen();
+      else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+    });
+
+    videoIO.observe(player);
+  });
+
+  document.addEventListener("click", () => {
+    document.querySelectorAll(".ub3-video-speed-menu.open").forEach((m) => m.classList.remove("open"));
+  });
+}
+
 function renderAnnouncementsFeed() {
   if (!lastAnnouncementsSnap) return;
 
@@ -1060,6 +1353,12 @@ function renderAnnouncementsFeed() {
       // as clickable once their portal account has actually claimed the
       // slot (leaderSlot.uid) — same verified-only gate used for comments
       // and mentions everywhere else on the site.
+      // Legacy posts only ever set imageUrl (one image); newer posts use
+      // the images[] array. Normalize to one ordered list either way.
+      const images = Array.isArray(a.images) && a.images.length ? a.images : a.imageUrl ? [a.imageUrl] : [];
+      if (images.length) galleryImagesByAnnId.set(id, images);
+      const mediaHtml = images.length ? galleryHtml(images, id) : a.video ? videoPlayerHtml(a.video, id) : "";
+
       const leaderSlot = LEADERS.find((l) => l.uid && l.uid === a.authorId);
       const avatarHtml = leaderSlot
         ? `<button type="button" class="announcement-avatar js-comment-leader-link" data-open-profile="${leaderSlot.id}" aria-label="View ${escapeHtml(leaderSlot.name)}'s profile">${announcementAvatar(a)}</button>`
@@ -1097,7 +1396,7 @@ function renderAnnouncementsFeed() {
           <h3 class="announcement-title">${escapeHtml(a.title)}</h3>
           <p class="announcement-body${needsTruncate ? " clamped js-ann-body" : ""}">${renderMentions(escapeHtml(bodyText), a.mentions)}</p>
           ${needsTruncate ? `<button type="button" class="announcement-see-more js-see-more">See more</button>` : ""}
-          ${a.imageUrl ? `<img class="announcement-photo" src="${a.imageUrl}" alt="" loading="lazy">` : ""}
+          ${mediaHtml}
           ${pollHtml(a, id)}
 
           <div class="announcement-actions">
@@ -1128,6 +1427,7 @@ function renderAnnouncementsFeed() {
     .join("");
 
   announcementsList.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+  initVideoPlayers();
 
   // Restore any open comment threads (re-fetch their comments since the
   // whole list HTML was just replaced by this snapshot).

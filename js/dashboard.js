@@ -14,8 +14,10 @@ import {
   doc,
   getDoc,
   getDocs,
+  setDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
   addDoc,
   collection,
   query,
@@ -28,6 +30,14 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { LEADERS, initials } from "./leaders-data.js";
 import { attachMentionAutocomplete, findMentionedLeaders } from "./mentions.js";
+import {
+  MAX_IMAGES_PER_POST,
+  compressImageFile,
+  validateVideoFile,
+  uploadFileWithProgress,
+  deleteFileByURL,
+  postMediaPath,
+} from "./media-upload.js";
 
 // Max size we allow the final base64 photo string to be. Photos are stored
 // directly inside the leader's Firestore document (no Firebase Storage /
@@ -36,11 +46,9 @@ import { attachMentionAutocomplete, findMentionedLeaders } from "./mentions.js";
 const MAX_PHOTO_DATA_URL_BYTES = 300 * 1024; // ~300KB final encoded size
 const PHOTO_MAX_DIMENSION = 480; // px, longest side
 
-// Same idea, but for an optional photo attached to an announcement post —
-// allowed to be a bit larger/wider since it's a banner image, not an avatar,
-// while still leaving plenty of headroom under Firestore's 1MiB doc limit.
-const MAX_POST_IMAGE_DATA_URL_BYTES = 700 * 1024; // ~700KB final encoded size
-const POST_IMAGE_MAX_DIMENSION = 1280; // px, longest side
+// Note: post images/video no longer go through this data-URL path — they
+// upload to Firebase Storage via js/media-upload.js. Kept here only for
+// the profile-photo picker below, which still stores a small inline photo.
 
 // Resizes/compresses an image file in the browser (via canvas) and returns
 // a small base64 data URL, regardless of how large the original photo is.
@@ -545,59 +553,187 @@ document.getElementById("notif-mark-all-read")?.addEventListener("click", async 
 /* Announcements — post to the public homepage feed                        */
 /* ---------------------------------------------------------------------- */
 
-// Same "process on selection, not on submit" reasoning as the profile
-// photo picker above.
-let pendingAnnPhotoDataURL = null;
-let pendingAnnPhotoError = null;
+// ---------------------------------------------------------------------
+// Multi-image / video composer for a new post.
+// pendingImages: [{ id, file }] in selection/display order.
+// pendingVideo:  { file, duration } | null
+// Images and video are mutually exclusive per post (matches the existing
+// single-attachment post structure — a post is text, text+images, or
+// text+video, never images+video together).
+// ---------------------------------------------------------------------
+let pendingImages = [];
+let pendingVideo = null;
+let composerUploading = false;
 
-document.getElementById("announcement-photo-input")?.addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  pendingAnnPhotoDataURL = null;
-  pendingAnnPhotoError = null;
+function annEls() {
+  return {
+    imagesInput: document.getElementById("announcement-images-input"),
+    videoInput: document.getElementById("announcement-video-input"),
+    dropzone: document.getElementById("ann-dropzone"),
+    pickImagesBtn: document.getElementById("ann-pick-images-btn"),
+    pickVideoBtn: document.getElementById("ann-pick-video-btn"),
+    previewGrid: document.getElementById("ann-image-previews"),
+    videoPreview: document.getElementById("ann-video-preview"),
+    status: document.getElementById("announcement-media-status"),
+    progressWrap: document.getElementById("ann-upload-progress"),
+    progressFill: document.getElementById("ann-upload-progress-fill"),
+    progressPct: document.getElementById("ann-upload-progress-pct"),
+  };
+}
 
-  const preview = document.getElementById("announcement-photo-preview");
-  const status = document.getElementById("announcement-photo-status");
-  const removeBtn = document.getElementById("announcement-photo-remove");
+function setMediaStatus(statusEl, text, kind) {
+  if (!statusEl) return;
+  statusEl.textContent = text || "";
+  statusEl.className = "ann-photo-status" + (kind ? ` ${kind}` : "");
+}
 
-  if (!file) {
-    preview.innerHTML = "No photo";
-    removeBtn.style.display = "none";
-    status.textContent = "";
+function renderComposerImagePreviews() {
+  const { previewGrid } = annEls();
+  if (!previewGrid) return;
+  previewGrid.innerHTML = pendingImages
+    .map(
+      (item, i) => `
+      <div class="media-preview-item" data-id="${item.id}">
+        <img src="${item.previewUrl}" alt="Preview ${i + 1}">
+        <span class="media-preview-badge">${i + 1}</span>
+        <button type="button" class="media-preview-remove" data-remove-id="${item.id}" aria-label="Remove image">&times;</button>
+      </div>`
+    )
+    .join("");
+  previewGrid.querySelectorAll(".media-preview-remove").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-remove-id");
+      pendingImages = pendingImages.filter((it) => it.id !== id);
+      renderComposerImagePreviews();
+      const { imagesInput } = annEls();
+      if (imagesInput) imagesInput.value = "";
+    });
+  });
+}
+
+function renderComposerVideoPreview() {
+  const { videoPreview } = annEls();
+  if (!videoPreview) return;
+  if (!pendingVideo) {
+    videoPreview.style.display = "none";
+    videoPreview.innerHTML = "";
     return;
   }
-  if (!file.type.startsWith("image/")) {
-    pendingAnnPhotoError = "Please choose an image file.";
-    status.textContent = pendingAnnPhotoError;
-    status.className = "ann-photo-status error";
+  videoPreview.style.display = "block";
+  videoPreview.innerHTML = `
+    <video src="${pendingVideo.previewUrl}" controls muted></video>
+    <button type="button" class="media-preview-remove" id="ann-video-remove" aria-label="Remove video" style="top:10px; right:10px;">&times;</button>`;
+  document.getElementById("ann-video-remove")?.addEventListener("click", () => {
+    pendingVideo = null;
+    const { videoInput } = annEls();
+    if (videoInput) videoInput.value = "";
+    renderComposerVideoPreview();
+  });
+}
+
+async function addComposerImages(fileList) {
+  const { status, imagesInput } = annEls();
+  if (pendingVideo) {
+    setMediaStatus(status, "A post can't have both images and a video — remove the video first.", "error");
     return;
   }
+  const files = Array.from(fileList || []).filter((f) => f.type.startsWith("image/"));
+  if (!files.length) return;
+  const room = MAX_IMAGES_PER_POST - pendingImages.length;
+  if (room <= 0) {
+    setMediaStatus(status, `You can attach up to ${MAX_IMAGES_PER_POST} photos per post.`, "error");
+    if (imagesInput) imagesInput.value = "";
+    return;
+  }
+  const toAdd = files.slice(0, room);
+  if (files.length > toAdd.length) {
+    setMediaStatus(status, `Only added ${toAdd.length} — a post can have up to ${MAX_IMAGES_PER_POST} photos.`, "error");
+  } else {
+    setMediaStatus(status, "", "");
+  }
+  toAdd.forEach((file) => {
+    pendingImages.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, file, previewUrl: URL.createObjectURL(file) });
+  });
+  renderComposerImagePreviews();
+  if (imagesInput) imagesInput.value = "";
+}
 
-  preview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="Preview">`;
-  removeBtn.style.display = "inline-block";
-  status.textContent = "Processing photo…";
-  status.className = "ann-photo-status";
+async function setComposerVideo(file) {
+  const { status, videoInput } = annEls();
+  if (!file) return;
+  if (pendingImages.length) {
+    setMediaStatus(status, "A post can't have both images and a video — remove the photos first.", "error");
+    if (videoInput) videoInput.value = "";
+    return;
+  }
+  setMediaStatus(status, "Checking video…", "");
   try {
-    pendingAnnPhotoDataURL = await photoFileToStoredURL(file, POST_IMAGE_MAX_DIMENSION, MAX_POST_IMAGE_DATA_URL_BYTES);
-    status.textContent = "Photo ready — it'll be attached when you post.";
-    status.className = "ann-photo-status success";
+    const duration = await validateVideoFile(file);
+    pendingVideo = { file, duration, previewUrl: URL.createObjectURL(file) };
+    renderComposerVideoPreview();
+    setMediaStatus(status, "Video ready — it'll be attached when you post.", "success");
   } catch (err) {
-    pendingAnnPhotoError = err?.message || "Couldn't process that photo.";
-    status.textContent = pendingAnnPhotoError;
-    status.className = "ann-photo-status error";
+    if (videoInput) videoInput.value = "";
+    setMediaStatus(status, err?.message || "Couldn't use that video.", "error");
   }
-});
+}
 
-document.getElementById("announcement-photo-remove")?.addEventListener("click", () => {
-  pendingAnnPhotoDataURL = null;
-  pendingAnnPhotoError = null;
-  const input = document.getElementById("announcement-photo-input");
-  const preview = document.getElementById("announcement-photo-preview");
-  const status = document.getElementById("announcement-photo-status");
-  const removeBtn = document.getElementById("announcement-photo-remove");
-  if (input) input.value = "";
-  preview.innerHTML = "No photo";
-  status.textContent = "";
-  removeBtn.style.display = "none";
+function resetComposerMedia() {
+  pendingImages = [];
+  pendingVideo = null;
+  const { imagesInput, videoInput, status } = annEls();
+  if (imagesInput) imagesInput.value = "";
+  if (videoInput) videoInput.value = "";
+  renderComposerImagePreviews();
+  renderComposerVideoPreview();
+  setMediaStatus(status, "", "");
+}
+
+function wireMediaDropzone({ dropzone, pickImagesBtn, pickVideoBtn, imagesInput, videoInput, onImages, onVideo }) {
+  if (!dropzone) return;
+  pickImagesBtn?.addEventListener("click", () => imagesInput?.click());
+  pickVideoBtn?.addEventListener("click", () => videoInput?.click());
+  dropzone.addEventListener("click", (e) => {
+    if (e.target === dropzone || e.target.closest(".media-dropzone-copy") === e.target) imagesInput?.click();
+  });
+  dropzone.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      imagesInput?.click();
+    }
+  });
+  imagesInput?.addEventListener("change", (e) => onImages(e.target.files));
+  videoInput?.addEventListener("change", (e) => onVideo(e.target.files?.[0]));
+
+  ["dragenter", "dragover"].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.add("drag-active");
+    })
+  );
+  ["dragleave", "drop"].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("drag-active");
+    })
+  );
+  dropzone.addEventListener("drop", (e) => {
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (!files.length) return;
+    const videoFile = files.find((f) => f.type.startsWith("video/"));
+    const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+    if (videoFile && !imageFiles.length) {
+      onVideo(videoFile);
+    } else if (imageFiles.length) {
+      onImages(imageFiles);
+    }
+  });
+}
+
+wireMediaDropzone({
+  ...annEls(),
+  onImages: addComposerImages,
+  onVideo: setComposerVideo,
 });
 
 document.getElementById("announcement-poll-toggle")?.addEventListener("change", (e) => {
@@ -620,19 +756,28 @@ document.getElementById("poll-add-option")?.addEventListener("click", () => {
 
 document.getElementById("announcement-form")?.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (composerUploading) return;
   const form = e.target;
   const status = document.getElementById("announcement-status");
   const btn = form.querySelector("button[type=submit]");
   const data = new FormData(form);
+  const { progressWrap, progressFill, progressPct, status: mediaStatus } = annEls();
 
+  composerUploading = true;
   btn.disabled = true;
   btn.textContent = "Posting…";
 
-  try {
-    if (pendingAnnPhotoError) {
-      throw new Error(pendingAnnPhotoError);
-    }
+  const showProgress = (pct) => {
+    if (progressWrap) progressWrap.style.display = "flex";
+    if (progressFill) progressFill.style.width = `${pct}%`;
+    if (progressPct) progressPct.textContent = `${pct}%`;
+  };
+  const hideProgress = () => {
+    if (progressWrap) progressWrap.style.display = "none";
+    if (progressFill) progressFill.style.width = "0%";
+  };
 
+  try {
     const category = data.get("category") || "Announcement";
     let poll = null;
     if (document.getElementById("announcement-poll-toggle")?.checked) {
@@ -664,21 +809,43 @@ document.getElementById("announcement-form")?.addEventListener("submit", async (
       likeCount: 0,
       commentCount: 0,
     };
-    if (pendingAnnPhotoDataURL) payload.imageUrl = pendingAnnPhotoDataURL;
     if (poll) payload.poll = poll;
     if (mentionedNow.length) payload.mentions = mentionedNow;
-    await addDoc(collection(db, "announcements"), payload);
+
+    // Pre-generate the doc ID so uploaded media can live under a stable
+    // announcement-media/{uid}/{postId}/… path before the doc itself
+    // exists.
+    const postRef = doc(collection(db, "announcements"));
+
+    if (pendingImages.length) {
+      const uploadedUrls = [];
+      showProgress(0);
+      for (let i = 0; i < pendingImages.length; i++) {
+        setMediaStatus(mediaStatus, `Uploading photo ${i + 1} of ${pendingImages.length}…`, "");
+        const blob = await compressImageFile(pendingImages[i].file);
+        const path = postMediaPath(currentUser.uid, postRef.id, "img", i, "jpg");
+        const url = await uploadFileWithProgress(path, blob, (pct) => {
+          const overall = Math.round(((i + pct / 100) / pendingImages.length) * 100);
+          showProgress(overall);
+        });
+        uploadedUrls.push(url);
+      }
+      payload.images = uploadedUrls;
+    } else if (pendingVideo) {
+      setMediaStatus(mediaStatus, "Uploading video…", "");
+      showProgress(0);
+      const ext = (pendingVideo.file.name.split(".").pop() || "mp4").toLowerCase();
+      const path = postMediaPath(currentUser.uid, postRef.id, "video", 0, ext);
+      const url = await uploadFileWithProgress(path, pendingVideo.file, showProgress);
+      payload.video = url;
+    }
+
+    await setDoc(postRef, payload);
     status.textContent = "Announcement posted — it's now live on the homepage.";
     status.className = "form-status success";
     form.reset();
-    pendingAnnPhotoDataURL = null;
-    pendingAnnPhotoError = null;
-    const preview = document.getElementById("announcement-photo-preview");
-    const removeBtn = document.getElementById("announcement-photo-remove");
-    const photoStatus = document.getElementById("announcement-photo-status");
-    if (preview) preview.innerHTML = "No photo";
-    if (removeBtn) removeBtn.style.display = "none";
-    if (photoStatus) photoStatus.textContent = "";
+    resetComposerMedia();
+    hideProgress();
     const pollBuilder = document.getElementById("announcement-poll-builder");
     if (pollBuilder) pollBuilder.style.display = "none";
     const pollOptionsList = document.getElementById("poll-options-list");
@@ -690,8 +857,10 @@ document.getElementById("announcement-form")?.addEventListener("submit", async (
   } catch (err) {
     status.textContent = err?.message || "Couldn't post your announcement. Please try again.";
     status.className = "form-status error";
+    hideProgress();
     console.error(err);
   } finally {
+    composerUploading = false;
     btn.disabled = false;
     btn.textContent = "Post Announcement";
   }
@@ -719,6 +888,22 @@ function watchMyAnnouncements() {
       snap.forEach((docSnap) => {
         const a = docSnap.data();
         const time = a.createdAt?.toDate ? a.createdAt.toDate().toLocaleString() : "";
+        // Legacy single-image posts only ever set imageUrl; newer posts use
+        // the images[] array. Normalize to one list so both render the same.
+        const images = Array.isArray(a.images) && a.images.length ? a.images : a.imageUrl ? [a.imageUrl] : [];
+        const MAX_STRIP = 4;
+        const mediaStripHtml = images.length
+          ? `<div class="ann-item-media-strip">
+              ${images
+                .slice(0, MAX_STRIP)
+                .map((url) => `<img src="${url}" alt="">`)
+                .join("")}
+              ${images.length > MAX_STRIP ? `<div class="ann-item-media-more">+${images.length - MAX_STRIP}</div>` : ""}
+            </div>`
+          : a.video
+          ? `<div class="ann-item-media-strip"><video src="${a.video}" muted></video></div>`
+          : "";
+
         const item = document.createElement("div");
         item.className = "ann-item glass";
         item.innerHTML = `
@@ -727,12 +912,14 @@ function watchMyAnnouncements() {
             <span class="ann-item-time">${time}</span>
           </div>
           <div class="ann-item-body">${escapeHtml(a.body)}</div>
-          ${a.imageUrl ? `<img class="ann-item-photo" src="${a.imageUrl}" alt="">` : ""}
+          ${mediaStripHtml}
           <div class="ann-item-actions">
+            <button type="button" class="ann-edit-btn" data-id="${docSnap.id}">Edit</button>
             <button type="button" class="ann-pin-btn" data-id="${docSnap.id}">${a.pinned ? "Unpin" : "Pin to top"}</button>
             <button type="button" class="ann-delete-btn" data-id="${docSnap.id}">Delete</button>
           </div>
         `;
+        item.querySelector(".ann-edit-btn").addEventListener("click", () => openEditPostModal(docSnap.id, a));
         item.querySelector(".ann-pin-btn").addEventListener("click", async (btnEvent) => {
           const btn = btnEvent.currentTarget;
           btn.disabled = true;
@@ -749,6 +936,9 @@ function watchMyAnnouncements() {
           if (!confirm("Delete this announcement? This can't be undone.")) return;
           try {
             await deleteDoc(doc(db, "announcements", docSnap.id));
+            // Best-effort cleanup of this post's media in Storage — never
+            // blocks the delete itself if a file is already gone.
+            await Promise.all([...images.map((url) => deleteFileByURL(url)), a.video ? deleteFileByURL(a.video) : null]);
           } catch (err) {
             console.error(err);
             alert("Couldn't delete this announcement. Please try again.");
@@ -776,6 +966,275 @@ function escapeHtml(str) {
   div.textContent = str || "";
   return div.innerHTML;
 }
+
+/* ---------------------------------------------------------------------- */
+/* Edit Post modal — add/remove/replace images, remove/replace video,     */
+/* without deleting and recreating the whole post.                        */
+/* ---------------------------------------------------------------------- */
+
+let editingPostId = null;
+// Each entry: { id, kind: 'existing'|'new', url? (existing), file?/previewUrl? (new) }
+let editImageItems = [];
+// { kind: 'existing'|'new'|'removed', url? (existing), file? (new) } | null if post never had a video
+let editVideoState = null;
+let editUploading = false;
+// Existing (already-uploaded) image URLs removed during this edit session —
+// deleted from Storage only once the edit is actually saved.
+let editRemovedImageUrls = [];
+
+function editEls() {
+  return {
+    overlay: document.getElementById("edit-post-overlay"),
+    form: document.getElementById("edit-post-form"),
+    titleInput: document.getElementById("edit-post-title"),
+    bodyInput: document.getElementById("edit-post-body"),
+    imagesInput: document.getElementById("edit-images-input"),
+    videoInput: document.getElementById("edit-video-input"),
+    dropzone: document.getElementById("edit-dropzone"),
+    pickImagesBtn: document.getElementById("edit-pick-images-btn"),
+    pickVideoBtn: document.getElementById("edit-pick-video-btn"),
+    previewGrid: document.getElementById("edit-image-previews"),
+    videoPreview: document.getElementById("edit-video-preview"),
+    status: document.getElementById("edit-media-status"),
+    progressWrap: document.getElementById("edit-upload-progress"),
+    progressFill: document.getElementById("edit-upload-progress-fill"),
+    progressPct: document.getElementById("edit-upload-progress-pct"),
+    saveBtn: document.getElementById("edit-post-save"),
+  };
+}
+
+function openEditPostModal(id, a) {
+  editingPostId = id;
+  const existingImages = Array.isArray(a.images) && a.images.length ? a.images : a.imageUrl ? [a.imageUrl] : [];
+  editImageItems = existingImages.map((url, i) => ({ id: `existing-${i}-${Math.random().toString(36).slice(2, 6)}`, kind: "existing", url }));
+  editVideoState = a.video ? { kind: "existing", url: a.video } : null;
+  editRemovedImageUrls = [];
+
+  const { overlay, titleInput, bodyInput, status, imagesInput, videoInput } = editEls();
+  if (titleInput) titleInput.value = a.title || "";
+  if (bodyInput) bodyInput.value = a.body || "";
+  if (imagesInput) imagesInput.value = "";
+  if (videoInput) videoInput.value = "";
+  setMediaStatus(status, "", "");
+  renderEditImagePreviews();
+  renderEditVideoPreview();
+  overlay?.classList.add("open");
+}
+
+function closeEditPostModal() {
+  const { overlay } = editEls();
+  overlay?.classList.remove("open");
+  editingPostId = null;
+  editImageItems = [];
+  editVideoState = null;
+  editRemovedImageUrls = [];
+}
+
+document.getElementById("edit-post-close")?.addEventListener("click", closeEditPostModal);
+document.getElementById("edit-post-overlay")?.addEventListener("click", (e) => {
+  if (e.target.id === "edit-post-overlay") closeEditPostModal();
+});
+
+function renderEditImagePreviews() {
+  const { previewGrid } = editEls();
+  if (!previewGrid) return;
+  previewGrid.innerHTML = editImageItems
+    .map((item, i) => {
+      const src = item.kind === "existing" ? item.url : item.previewUrl;
+      return `
+      <div class="media-preview-item" data-id="${item.id}">
+        <img src="${src}" alt="Preview ${i + 1}">
+        <span class="media-preview-badge">${i + 1}</span>
+        <button type="button" class="media-preview-remove" data-remove-id="${item.id}" aria-label="Remove image">&times;</button>
+      </div>`;
+    })
+    .join("");
+  previewGrid.querySelectorAll(".media-preview-remove").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-remove-id");
+  const removedItem = editImageItems.find((it) => it.id === id);
+      if (removedItem && removedItem.kind === "existing") editRemovedImageUrls.push(removedItem.url);
+      editImageItems = editImageItems.filter((it) => it.id !== id);
+      renderEditImagePreviews();
+    });
+  });
+}
+
+function renderEditVideoPreview() {
+  const { videoPreview } = editEls();
+  if (!videoPreview) return;
+  if (!editVideoState || editVideoState.kind === "removed") {
+    videoPreview.style.display = "none";
+    videoPreview.innerHTML = "";
+    return;
+  }
+  const src = editVideoState.kind === "existing" ? editVideoState.url : editVideoState.previewUrl;
+  videoPreview.style.display = "block";
+  videoPreview.innerHTML = `
+    <video src="${src}" controls muted></video>
+    <button type="button" class="media-preview-remove" id="edit-video-remove" aria-label="Remove video" style="top:10px; right:10px;">&times;</button>`;
+  document.getElementById("edit-video-remove")?.addEventListener("click", () => {
+    editVideoState = editVideoState.kind === "existing" ? { kind: "removed", url: editVideoState.url } : null;
+    renderEditVideoPreview();
+  });
+}
+
+function addEditImages(fileList) {
+  const { status, imagesInput } = editEls();
+  if (editVideoState && editVideoState.kind !== "removed") {
+    setMediaStatus(status, "A post can't have both images and a video — remove the video first.", "error");
+    return;
+  }
+  const files = Array.from(fileList || []).filter((f) => f.type.startsWith("image/"));
+  if (!files.length) return;
+  const room = MAX_IMAGES_PER_POST - editImageItems.length;
+  if (room <= 0) {
+    setMediaStatus(status, `You can attach up to ${MAX_IMAGES_PER_POST} photos per post.`, "error");
+    if (imagesInput) imagesInput.value = "";
+    return;
+  }
+  const toAdd = files.slice(0, room);
+  if (files.length > toAdd.length) {
+    setMediaStatus(status, `Only added ${toAdd.length} — a post can have up to ${MAX_IMAGES_PER_POST} photos.`, "error");
+  } else {
+    setMediaStatus(status, "", "");
+  }
+  toAdd.forEach((file) => {
+    editImageItems.push({ id: `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, kind: "new", file, previewUrl: URL.createObjectURL(file) });
+  });
+  renderEditImagePreviews();
+  if (imagesInput) imagesInput.value = "";
+}
+
+async function setEditVideo(file) {
+  const { status, videoInput } = editEls();
+  if (!file) return;
+  if (editImageItems.length) {
+    setMediaStatus(status, "A post can't have both images and a video — remove the photos first.", "error");
+    if (videoInput) videoInput.value = "";
+    return;
+  }
+  setMediaStatus(status, "Checking video…", "");
+  try {
+    await validateVideoFile(file);
+    editVideoState = { kind: "new", file, previewUrl: URL.createObjectURL(file) };
+    renderEditVideoPreview();
+    setMediaStatus(status, "Video ready — it'll replace the current video when you save.", "success");
+  } catch (err) {
+    if (videoInput) videoInput.value = "";
+    setMediaStatus(status, err?.message || "Couldn't use that video.", "error");
+  }
+}
+
+wireMediaDropzone({
+  ...editEls(),
+  onImages: addEditImages,
+  onVideo: setEditVideo,
+});
+
+document.getElementById("edit-post-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (editUploading || !editingPostId) return;
+  const { titleInput, bodyInput, status, saveBtn, progressWrap, progressFill, progressPct } = editEls();
+  const postId = editingPostId;
+
+  const showProgress = (pct) => {
+    if (progressWrap) progressWrap.style.display = "flex";
+    if (progressFill) progressFill.style.width = `${pct}%`;
+    if (progressPct) progressPct.textContent = `${pct}%`;
+  };
+  const hideProgress = () => {
+    if (progressWrap) progressWrap.style.display = "none";
+    if (progressFill) progressFill.style.width = "0%";
+  };
+
+  editUploading = true;
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving…";
+  }
+
+  const urlsToDelete = [];
+
+  try {
+    const bodyVal = (bodyInput?.value || "").trim();
+    const mentionedNow = findMentionedLeaders(bodyVal, LEADERS).map((l) => ({ id: l.id, name: l.name }));
+    const update = {
+      title: (titleInput?.value || "").trim(),
+      body: bodyVal,
+      mentions: mentionedNow.length ? mentionedNow : deleteField(),
+    };
+
+    // Upload any newly-added images, in their current display order.
+    if (editImageItems.length) {
+      const finalUrls = [];
+      const newCount = editImageItems.filter((it) => it.kind === "new").length;
+      let uploadedSoFar = 0;
+      for (const item of editImageItems) {
+        if (item.kind === "existing") {
+          finalUrls.push(item.url);
+        } else {
+          setMediaStatus(status, `Uploading photo ${uploadedSoFar + 1} of ${newCount}…`, "");
+          const blob = await compressImageFile(item.file);
+          const path = postMediaPath(currentUser.uid, postId, "img", finalUrls.length, "jpg");
+          const url = await uploadFileWithProgress(path, blob, (pct) => {
+            showProgress(Math.round(((uploadedSoFar + pct / 100) / newCount) * 100));
+          });
+          finalUrls.push(url);
+          uploadedSoFar++;
+        }
+      }
+      update.images = finalUrls;
+      update.imageUrl = deleteField();
+      update.video = deleteField();
+    } else {
+      update.images = deleteField();
+      update.imageUrl = deleteField();
+    }
+
+    if (editVideoState?.kind === "new") {
+      setMediaStatus(status, "Uploading video…", "");
+      showProgress(0);
+      const ext = (editVideoState.file.name.split(".").pop() || "mp4").toLowerCase();
+      const path = postMediaPath(currentUser.uid, postId, "video", 0, ext);
+      const url = await uploadFileWithProgress(path, editVideoState.file, showProgress);
+      update.video = url;
+      update.images = deleteField();
+      update.imageUrl = deleteField();
+      // Fetch the pre-edit doc's video URL for cleanup below.
+      const snap = await getDoc(doc(db, "announcements", postId));
+      const prevVideo = snap.exists() ? snap.data().video : null;
+      if (prevVideo) urlsToDelete.push(prevVideo);
+    } else if (editVideoState?.kind === "removed" && editVideoState.url) {
+      update.video = deleteField();
+      urlsToDelete.push(editVideoState.url);
+    } else if (!editImageItems.length && !editVideoState) {
+      update.video = deleteField();
+    }
+
+    // Any existing image that was removed in this edit gets cleaned up too.
+    urlsToDelete.push(...editRemovedImageUrls);
+
+    await updateDoc(doc(db, "announcements", postId), update);
+
+    // Clean up removed/replaced media in Storage (best-effort).
+    await Promise.all(urlsToDelete.map((url) => deleteFileByURL(url)));
+
+    hideProgress();
+    setMediaStatus(status, "", "");
+    closeEditPostModal();
+  } catch (err) {
+    console.error(err);
+    setMediaStatus(status, err?.message || "Couldn't save changes. Please try again.", "error");
+    hideProgress();
+  } finally {
+    editUploading = false;
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Save Changes";
+    }
+  }
+});
 
 /* ---------------------------------------------------------------------- */
 /* Password change                                                         */
