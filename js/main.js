@@ -1306,6 +1306,206 @@ function initVideoPlayers() {
   });
 }
 
+// ----------------------------------------------------------------------
+// Click-to-expand video viewer — YouTube/Instagram/X-style large overlay.
+// Purely additive: does not alter videoPlayerHtml(), initVideoPlayers(),
+// or any existing playback/upload/data logic. Adds a small always-visible
+// expand button to every rendered player, and opens a fresh copy of the
+// same custom player (same markup, same controls) inside a centered,
+// fade + zoom overlay. Playback position, volume, mute, and speed are
+// carried over in both directions so the feed video picks up exactly
+// where the enlarged one left off, and the page never scrolls.
+// ----------------------------------------------------------------------
+function injectVideoExpandButtons() {
+  document.getElementById("announcements-list")?.querySelectorAll(".ub3-video-player").forEach((player) => {
+    if (player.querySelector(".ub3-video-expand")) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ub3-video-expand";
+    btn.setAttribute("aria-label", "Expand video");
+    btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>`;
+    player.appendChild(btn);
+  });
+}
+
+// Wires play/pause, seek, volume/mute, and speed controls for a single
+// player element rendered inside the lightbox stage. Mirrors the behavior
+// wired up in initVideoPlayers() for the feed copy, kept separate so the
+// existing function above is never touched.
+function wireLightboxVideoPlayer(player) {
+  const video = player.querySelector(".ub3-video-el");
+  if (!video) return null;
+  const bigPlay = player.querySelector(".ub3-video-bigplay");
+  const playBtn = player.querySelector(".ub3-video-play");
+  const iconPlay = player.querySelector(".icon-play");
+  const iconPause = player.querySelector(".icon-pause");
+  const seek = player.querySelector(".ub3-video-seek");
+  const time = player.querySelector(".ub3-video-time");
+  const duration = player.querySelector(".ub3-video-duration");
+  const muteBtn = player.querySelector(".ub3-video-mute");
+  const iconVolOn = player.querySelector(".icon-vol-on");
+  const iconVolOff = player.querySelector(".icon-vol-off");
+  const volume = player.querySelector(".ub3-video-volume");
+  const speedBtn = player.querySelector(".ub3-video-speed");
+  const speedMenu = player.querySelector(".ub3-video-speed-menu");
+  const pipBtn = player.querySelector(".ub3-video-pip");
+  const fsBtn = player.querySelector(".ub3-video-fullscreen");
+
+  const syncPlayIcon = () => {
+    const playing = !video.paused && !video.ended;
+    if (iconPlay) iconPlay.style.display = playing ? "none" : "";
+    if (iconPause) iconPause.style.display = playing ? "" : "none";
+    if (bigPlay) bigPlay.style.display = playing ? "none" : "flex";
+  };
+  const togglePlay = () => (video.paused ? video.play().catch(() => {}) : video.pause());
+  playBtn?.addEventListener("click", togglePlay);
+  bigPlay?.addEventListener("click", togglePlay);
+  video.addEventListener("click", togglePlay);
+  video.addEventListener("play", syncPlayIcon);
+  video.addEventListener("pause", syncPlayIcon);
+  syncPlayIcon();
+
+  video.addEventListener("loadedmetadata", () => {
+    if (duration) duration.textContent = formatVideoTime(video.duration);
+  });
+  video.addEventListener("timeupdate", () => {
+    if (time) time.textContent = formatVideoTime(video.currentTime);
+    if (seek && video.duration) seek.value = String((video.currentTime / video.duration) * 100);
+  });
+  seek?.addEventListener("input", () => {
+    if (video.duration) video.currentTime = (Number(seek.value) / 100) * video.duration;
+  });
+
+  const syncMuteIcon = () => {
+    const muted = video.muted || video.volume === 0;
+    if (iconVolOn) iconVolOn.style.display = muted ? "none" : "";
+    if (iconVolOff) iconVolOff.style.display = muted ? "" : "none";
+  };
+  muteBtn?.addEventListener("click", () => {
+    video.muted = !video.muted;
+    if (!video.muted && video.volume === 0) video.volume = 1;
+    syncMuteIcon();
+  });
+  volume?.addEventListener("input", () => {
+    video.volume = Number(volume.value);
+    video.muted = video.volume === 0;
+    syncMuteIcon();
+  });
+  syncMuteIcon();
+
+  speedBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    speedMenu?.classList.toggle("open");
+  });
+  speedMenu?.querySelectorAll(".ub3-video-speed-opt").forEach((opt) => {
+    opt.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const rate = Number(opt.getAttribute("data-speed"));
+      video.playbackRate = rate;
+      if (speedBtn) speedBtn.textContent = `${rate}x`;
+      speedMenu.classList.remove("open");
+    });
+  });
+
+  pipBtn?.addEventListener("click", async () => {
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else if (document.pictureInPictureEnabled) {
+        await video.requestPictureInPicture();
+      }
+    } catch (err) {
+      console.warn("Picture-in-picture unavailable:", err?.message || err);
+    }
+  });
+
+  // Native fullscreen stays available here too (pre-existing behavior on
+  // this control), but opening the lightbox itself never triggers it.
+  fsBtn?.addEventListener("click", () => {
+    if (video.requestFullscreen) video.requestFullscreen();
+    else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+  });
+
+  return video;
+}
+
+const videoLightbox = document.getElementById("video-lightbox");
+const videoLightboxStage = document.getElementById("video-lightbox-stage");
+
+let vlbSourceVideo = null; // the feed <video> that was expanded, for state handoff back on close
+let vlbWasPlaying = false;
+
+function openVideoLightbox(sourceVideo) {
+  if (!videoLightbox || !videoLightboxStage || !sourceVideo) return;
+  const src = sourceVideo.currentSrc || sourceVideo.getAttribute("src");
+  if (!src) return;
+
+  videoLightboxStage.innerHTML = videoPlayerHtml(src, "lightbox");
+  const player = videoLightboxStage.querySelector(".ub3-video-player");
+  const video = player ? wireLightboxVideoPlayer(player) : null;
+  if (!video) return;
+
+  vlbSourceVideo = sourceVideo;
+  vlbWasPlaying = !sourceVideo.paused && !sourceVideo.ended;
+  sourceVideo.pause(); // avoid two copies of the same audio playing at once
+
+  video.muted = sourceVideo.muted;
+  video.volume = sourceVideo.volume;
+  video.playbackRate = sourceVideo.playbackRate;
+
+  const resume = () => {
+    video.currentTime = sourceVideo.currentTime || 0;
+    if (vlbWasPlaying) video.play().catch(() => {});
+  };
+  if (video.readyState >= 1) resume();
+  else video.addEventListener("loadedmetadata", resume, { once: true });
+
+  // Body scroll is locked (not scrolled to a new position), so the feed
+  // is exactly where it was left the moment the overlay is closed.
+  document.body.style.overflow = "hidden";
+  videoLightbox.classList.add("open");
+  requestAnimationFrame(() => videoLightbox.classList.add("visible"));
+}
+
+function closeVideoLightbox() {
+  if (!videoLightbox || !videoLightbox.classList.contains("open")) return;
+  const video = videoLightboxStage?.querySelector(".ub3-video-el");
+  if (video && vlbSourceVideo) {
+    vlbSourceVideo.currentTime = video.currentTime;
+    vlbSourceVideo.muted = video.muted;
+    vlbSourceVideo.volume = video.volume;
+    vlbSourceVideo.playbackRate = video.playbackRate;
+  }
+  const resumeSource = vlbWasPlaying ? vlbSourceVideo : null;
+
+  videoLightbox.classList.remove("visible");
+  document.body.style.overflow = "";
+  setTimeout(() => {
+    videoLightbox.classList.remove("open");
+    if (videoLightboxStage) videoLightboxStage.innerHTML = "";
+    resumeSource?.play().catch(() => {});
+  }, 220); // matches the CSS fade/zoom-out duration
+
+  vlbSourceVideo = null;
+  vlbWasPlaying = false;
+}
+
+document.getElementById("announcements-list")?.addEventListener("click", (e) => {
+  const expandBtn = e.target.closest(".ub3-video-expand");
+  if (!expandBtn) return;
+  e.stopPropagation();
+  const sourceVideo = expandBtn.closest(".ub3-video-player")?.querySelector(".ub3-video-el");
+  if (sourceVideo) openVideoLightbox(sourceVideo);
+});
+videoLightbox?.addEventListener("click", (e) => {
+  if (e.target === videoLightbox) closeVideoLightbox();
+});
+document.getElementById("video-lightbox-close")?.addEventListener("click", closeVideoLightbox);
+document.addEventListener("keydown", (e) => {
+  if (!videoLightbox?.classList.contains("open")) return;
+  if (e.key === "Escape") closeVideoLightbox();
+});
+
 function renderAnnouncementsFeed() {
   if (!lastAnnouncementsSnap) return;
 
@@ -1428,6 +1628,7 @@ function renderAnnouncementsFeed() {
 
   announcementsList.querySelectorAll(".reveal").forEach((el) => io.observe(el));
   initVideoPlayers();
+  injectVideoExpandButtons();
 
   // Restore any open comment threads (re-fetch their comments since the
   // whole list HTML was just replaced by this snapshot).
