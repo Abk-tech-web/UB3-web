@@ -43,7 +43,13 @@
   .announcement-card { padding: 20px 18px; }
   .announcement-avatar { width: 50px; height: 50px; }
   .announcement-title { font-size: 18px; }
-  .announcement-photo { max-height: 420px; }
+  .announcement-gallery { border-radius: 14px; }
+  .gallery-1 .gallery-tile, .gallery-1 .gallery-img { max-height: 420px; }
+  .ub3-video-el { max-height: 420px; }
+  .ub3-video-controls { padding: 6px 8px; gap: 6px; }
+  .ub3-video-volume { width: 40px; }
+  .ub3-video-time, .ub3-video-duration { display: none; }
+  .img-lightbox-nav { width: 40px; height: 40px; font-size: 24px; }
   .announcement-actions { max-width: none; }
 
   /* Header rows on small screens: username keeps priority and is never
