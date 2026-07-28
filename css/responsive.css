@@ -50,6 +50,10 @@
   .ub3-video-volume { width: 40px; }
   .ub3-video-time, .ub3-video-duration { display: none; }
   .img-lightbox-nav { width: 40px; height: 40px; font-size: 24px; }
+  .video-lightbox { padding: 0; }
+  .video-lightbox-stage .ub3-video-el { max-height: 100vh; }
+  .ub3-video-expand { width: 30px; height: 30px; top: 8px; right: 8px; }
+  .ub3-video-expand svg { width: 15px; height: 15px; }
   .announcement-actions { max-width: none; }
 
   /* Header rows on small screens: username keeps priority and is never
