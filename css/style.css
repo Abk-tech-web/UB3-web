@@ -410,7 +410,7 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spac
    blocks so it matches the Leadership section's design language, plus its
    own small ADMIN badge. Nothing here overrides the leader rules above.
    ========================================================================== */
-.admins-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; max-width: 320px; margin: 0 auto; }
+.admins-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
 .admin-badge-tag {
   display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
   color: #0a0f1e; background: var(--grad-primary, #38bdf8); padding: 2px 8px;
