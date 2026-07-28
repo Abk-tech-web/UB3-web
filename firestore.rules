@@ -56,6 +56,91 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ========================================================================
+    // ADMIN PORTAL — completely separate from the Leader Portal above. Its
+    // own collections (admins/, meta/adminStats, communityFeedback/,
+    // whitepaper/), its own auth requirement (Google Sign-In only, via the
+    // 'google.com' sign_in_provider check), and its own cap. None of the
+    // rules below read from or write to leaders/, messages/, announcements/,
+    // roadmapUpdates/, or roadmapPhases/, and none of the rules above
+    // reference these either.
+    // ========================================================================
+
+    // ---- meta/adminStats --------------------------------------------------
+    // Mirrors meta/stats above but governs Admin Portal registration.
+    // Tracks how many admin profiles exist (-> { adminCount: number }).
+    // Currently locked at exactly 1 — `update` is intentionally disabled
+    // entirely below, so once the first admin profile is created, admin
+    // registration is locked automatically and can only ever be reopened by
+    // a manual, deliberate change to this file in the future.
+    match /meta/adminStats {
+      allow read: if true;
+      allow create: if request.auth != null
+                    && request.auth.token.firebase.sign_in_provider == 'google.com'
+                    && request.resource.data.adminCount == 1;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // ---- admins/{uid} ------------------------------------------------------
+    // Anyone can read (shown on the public Admin Card + powers the ADMIN
+    // badge). Only the signed-in admin who owns the document can create or
+    // update it, only via Google Sign-In, and only while meta/adminStats
+    // hasn't already reached 1 — i.e. only the very first approved
+    // administrator can ever create a profile through the app. Anyone who
+    // tries after that is rejected here even if the client-side UI is
+    // bypassed entirely.
+    match /admins/{adminId} {
+      allow read: if true;
+      allow create: if request.auth != null
+                    && request.auth.uid == adminId
+                    && request.auth.token.firebase.sign_in_provider == 'google.com'
+                    && (!exists(/databases/$(database)/documents/meta/adminStats)
+                        || get(/databases/$(database)/documents/meta/adminStats).data.adminCount < 1);
+      allow update: if request.auth != null
+                    && request.auth.uid == adminId
+                    && request.auth.token.firebase.sign_in_provider == 'google.com';
+      allow delete: if false;
+    }
+
+    // ---- communityFeedback/{feedbackId} ------------------------------------
+    // General platform feedback from visitors — a dedicated inbox, entirely
+    // separate from the leaders' messages/ collection above. Anyone
+    // (including signed-out visitors) can submit; only a signed-in,
+    // registered admin (an admins/{uid} doc owner) can read it or mark one
+    // read. Leaders — who are never also admins/{uid} doc owners — cannot
+    // read this collection.
+    match /communityFeedback/{feedbackId} {
+      allow create: if request.resource.data.keys().hasAll(['fromName', 'fromEmail', 'body', 'read', 'createdAt'])
+                    && request.resource.data.fromName is string
+                    && request.resource.data.fromName.size() > 0
+                    && request.resource.data.fromName.size() <= 80
+                    && request.resource.data.fromEmail is string
+                    && request.resource.data.fromEmail.size() <= 200
+                    && request.resource.data.body is string
+                    && request.resource.data.body.size() > 0
+                    && request.resource.data.body.size() <= 2000
+                    && request.resource.data.read == false;
+      allow read: if request.auth != null
+                    && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      allow update: if request.auth != null
+                    && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if false;
+    }
+
+    // ---- whitepaper/{docId} ------------------------------------------------
+    // A single shared document (docId "current") describing the latest
+    // published UB3 whitepaper (url, fileName, version, publishedAt,
+    // publishedBy) — set from the Admin Portal's Whitepaper Management
+    // section. Anyone can read it (it powers the public download link); only
+    // a registered admin can upload/replace/delete it.
+    match /whitepaper/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null
+                    && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
     // ---- settings/{settingId} -------------------------------------------
     // Small shared, site-wide values editable from any leader's dashboard
     // (not tied to one author). Anyone can read; only a signed-in,

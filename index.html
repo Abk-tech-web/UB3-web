@@ -187,6 +187,21 @@
   </div>
 </section>
 
+<!-- ============================== ADMIN =============================== -->
+<!-- Completely separate from the Leadership section above: its own data   -->
+<!-- source (js/admins-data.js + Firestore admins/{uid}), its own portal   -->
+<!-- (admin-portal.html), and its own dashboard (admin-dashboard.html).    -->
+<section id="administration">
+  <div class="section-inner">
+    <div class="section-head reveal">
+      <span class="eyebrow">Platform Administration</span>
+      <h2>UB3 Administrator</h2>
+      <p>Manages platform-wide settings, general community feedback, and the official UB3 whitepaper.</p>
+    </div>
+    <div class="admins-grid" id="admins-grid"><!-- rendered by js/main.js --></div>
+  </div>
+</section>
+
 <!-- ============================= PARTNERS ============================= -->
 <section id="partners" style="padding:80px 0; background:var(--bg-alt);">
   <div class="section-inner">
@@ -362,7 +377,9 @@
         <h4>Platform</h4>
         <ul>
           <li><a href="portal.html">Leadership Portal</a></li>
+          <li><a href="admin-portal.html">Admin Portal</a></li>
           <li><a href="mailto:Unbounddao@gmail.com">Email Us</a></li>
+          <li id="whitepaper-link-item" style="display:none;"><a href="#" id="whitepaper-link" class="whitepaper-download-link" target="_blank" rel="noopener">Whitepaper</a></li>
         </ul>
       </div>
     </div>
