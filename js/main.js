@@ -18,6 +18,7 @@ import {
   onSnapshot,
   where,
   doc,
+  getDoc,
   setDoc,
   deleteDoc,
   updateDoc,
@@ -31,6 +32,7 @@ import {
   signOut,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { LEADERS, initials } from "./leaders-data.js";
+import { ADMINS, adminInitials } from "./admins-data.js";
 import { ICONS } from "./icons.js";
 import {
   verifiedMentionCandidates,
@@ -92,6 +94,59 @@ async function loadLiveLeaders() {
 }
 
 const liveLeadersReady = loadLiveLeaders();
+
+/* ---------------------------------------------------------------------- */
+/* ADMIN PORTAL — completely separate roster/hydration from LEADERS above. */
+/* Overlays live Firestore `admins/{uid}` docs onto the static ADMINS      */
+/* roster (js/admins-data.js) the same way loadLiveLeaders does for        */
+/* leaders, matched by position ("Admin 1", etc). Nothing here touches     */
+/* LEADERS, leaders/, or any leader-related state.                         */
+/* ---------------------------------------------------------------------- */
+async function loadLiveAdmins() {
+  try {
+    const snap = await getDocs(collection(db, "admins"));
+    const byPosition = new Map();
+    snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      const key = normalizePosition(data.position);
+      if (key) byPosition.set(key, { ...data, uid: docSnap.id });
+    });
+
+    ADMINS.forEach((slot) => {
+      const live = byPosition.get(normalizePosition(slot.position));
+      if (!live) return;
+      slot.uid = live.uid;
+      if (live.name) slot.name = live.name;
+      if (live.photoURL) slot.photo = live.photoURL;
+      if (live.bio) slot.bio = live.bio;
+      if (live.email) slot.email = live.email;
+      if (live.socials?.x) slot.socials = { ...slot.socials, x: live.socials.x };
+      if (live.socials?.telegram) slot.socials = { ...slot.socials, telegram: live.socials.telegram };
+    });
+  } catch (err) {
+    console.warn("Could not load live admin profiles:", err);
+  }
+}
+
+const liveAdminsReady = loadLiveAdmins();
+
+// Public "Whitepaper" footer link — only shown once a whitepaper has
+// actually been published from the Admin Portal.
+(async () => {
+  try {
+    const snap = await getDoc(doc(db, "whitepaper", "current"));
+    if (snap.exists() && snap.data().url) {
+      const link = document.getElementById("whitepaper-link");
+      const item = document.getElementById("whitepaper-link-item");
+      if (link && item) {
+        link.href = snap.data().url;
+        item.style.display = "";
+      }
+    }
+  } catch (err) {
+    console.warn("Could not load whitepaper link:", err);
+  }
+})();
 
 /* ---------------------------------------------------------------------- */
 /* Theme                                                                   */
@@ -398,6 +453,115 @@ async function renderLeadersGrid() {
 }
 
 renderLeadersGrid();
+
+/* ---------------------------------------------------------------------- */
+/* ADMIN PORTAL — Admin Card grid + profile modal (public site)            */
+/* Separate render path from renderLeadersGrid/openLeaderModal above.      */
+/* Reuses the same generic #leader-modal overlay element (just a reusable  */
+/* modal container — opening an admin's profile in it doesn't touch any    */
+/* leader-modal behavior/state).                                          */
+/* ---------------------------------------------------------------------- */
+function adminBadgeTag() {
+  return `<span class="admin-badge-tag">ADMIN</span>`;
+}
+
+const adminsGrid = document.getElementById("admins-grid");
+
+async function renderAdminsGrid() {
+  if (!adminsGrid) return;
+  await liveAdminsReady;
+
+  adminsGrid.innerHTML = ADMINS.map(
+    (a, idx) => `
+    <article class="leader-card glass reveal" style="transition-delay:${idx * 0.05}s">
+      <div class="leader-photo">
+        ${a.photo ? `<img src="${a.photo}" alt="${a.name}" loading="lazy">` : adminInitials(a.name)}
+      </div>
+      <div class="leader-body">
+        <h3>${a.name}${adminBadgeTag()}</h3>
+        <div class="l-role">${a.position}</div>
+        <p class="l-bio">${a.bio}</p>
+        <div class="leader-actions">
+          <div class="l-socials">${socialLinks(a)}</div>
+          <button class="btn btn-ghost btn-sm" data-open-admin-profile="${a.id}">View Profile</button>
+        </div>
+      </div>
+    </article>`
+  ).join("");
+
+  adminsGrid.querySelectorAll("[data-open-admin-profile]").forEach((btn) =>
+    btn.addEventListener("click", () => openAdminModal(btn.dataset.openAdminProfile))
+  );
+  adminsGrid.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+}
+
+renderAdminsGrid();
+
+async function handleCommunityFeedback(e) {
+  e.preventDefault();
+  const form = e.target;
+  const status = form.querySelector("#admin-feedback-status");
+  const btn = form.querySelector("button[type=submit]");
+  const data = new FormData(form);
+
+  btn.disabled = true;
+  btn.textContent = "Sending…";
+
+  try {
+    await addDoc(collection(db, "communityFeedback"), {
+      fromName: data.get("name"),
+      fromEmail: data.get("email"),
+      body: data.get("message"),
+      read: false,
+      createdAt: serverTimestamp(),
+    });
+    status.textContent = "Feedback sent — thank you for helping improve UB3!";
+    status.className = "form-status success";
+    form.reset();
+  } catch (err) {
+    status.textContent = "Couldn't send your feedback. Please try again shortly.";
+    status.className = "form-status error";
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Send Feedback";
+  }
+}
+
+function openAdminModal(id) {
+  const admin = ADMINS.find((a) => a.id === id);
+  if (!admin || !modalOverlay) return;
+
+  modalContent.innerHTML = `
+    <button class="modal-close" data-close-modal aria-label="Close profile">${ICONS.close}</button>
+    <div class="modal-head">
+      <div class="leader-photo">${admin.photo ? `<img src="${admin.photo}" alt="${admin.name}">` : adminInitials(admin.name)}</div>
+      <div>
+        <h3>${admin.name}${adminBadgeTag()}</h3>
+        <div class="l-role">${admin.position}</div>
+      </div>
+    </div>
+    <div class="modal-body">
+      <p class="l-bio">${admin.bio}</p>
+      <div class="l-socials" style="margin-bottom:22px;">${socialLinks(admin)}</div>
+      <form id="admin-feedback-form">
+        <div class="field"><label>Your name</label><input type="text" name="name" required></div>
+        <div class="field"><label>Your email</label><input type="email" name="email" required></div>
+        <div class="field"><label>General feedback about the UB3 platform</label><textarea name="message" rows="4" required></textarea></div>
+        <button type="submit" class="btn btn-primary btn-block">Send Feedback</button>
+        <p class="form-status" id="admin-feedback-status"></p>
+      </form>
+    </div>
+  `;
+
+  modalOverlay.classList.add("open");
+  modalContent.querySelector("[data-close-modal]").addEventListener("click", () => closeLeaderModal());
+  modalContent.querySelector("#admin-feedback-form").addEventListener("submit", handleCommunityFeedback);
+
+  if (!(history.state && history.state.ub3Modal)) {
+    history.pushState({ ub3Modal: true }, "");
+  }
+}
 
 const modalOverlay = document.getElementById("leader-modal");
 const modalContent = document.getElementById("leader-modal-content");
