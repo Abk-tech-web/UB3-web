@@ -242,12 +242,28 @@ service cloud.firestore {
                     && request.resource.data.body is string
                     && request.resource.data.body.size() > 0
                     && request.resource.data.body.size() <= 5000
-                    // Optional photo, stored as a base64 data URL (no Firebase
-                    // Storage / Blaze plan needed) — capped well under
-                    // Firestore's 1MiB per-document limit.
+                    // Legacy optional photo field — some older posts (or
+                    // clients) may still write a single base64 data URL
+                    // here directly, capped well under Firestore's 1MiB
+                    // per-document limit. New posts use images[] below.
                     && (!('imageUrl' in request.resource.data)
                         || (request.resource.data.imageUrl is string
                             && request.resource.data.imageUrl.size() <= 900000))
+                    // Optional array of Firebase Storage download URLs
+                    // (up to 10), for the multi-image post uploader.
+                    && (!('images' in request.resource.data)
+                        || (request.resource.data.images is list
+                            && request.resource.data.images.size() <= 10
+                            && request.resource.data.images.size() > 0))
+                    // Optional short-video Firebase Storage download URL.
+                    // Size/duration are validated client-side before
+                    // upload (Storage rules also cap the file size);
+                    // Firestore only needs to confirm this is a URL string,
+                    // and that a post never carries both images and video.
+                    && (!('video' in request.resource.data)
+                        || (request.resource.data.video is string
+                            && request.resource.data.video.size() > 0))
+                    && !(('images' in request.resource.data) && ('video' in request.resource.data))
                     // Optional topic tag, shown as a filterable chip.
                     && (!('category' in request.resource.data)
                         || (request.resource.data.category is string

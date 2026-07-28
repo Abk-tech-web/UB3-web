@@ -18,6 +18,14 @@ service firebase.storage {
       allow delete: if false;
     }
 
+    // ---- announcement-media -----------------------------------------
+    // NOTE: post images/video are NOT stored in Firebase Storage. As of
+    // Feb 2026, Storage requires the paid Blaze plan just to provision a
+    // bucket, so post media now uploads to Cloudinary instead (see
+    // js/media-upload.js). This file is unused for that flow — it's kept
+    // only in case you want the leader-photos rule below, or migrate to
+    // Storage later once/if you're on Blaze.
+
     // Deny everything else by default.
     match /{allPaths=**} {
       allow read, write: if false;

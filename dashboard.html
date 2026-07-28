@@ -65,6 +65,36 @@
   .visitor-notice { background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.3); color: var(--silver); font-size: 13.5px; padding: 14px 18px; border-radius: var(--radius-sm); margin-bottom: 24px; }
   .dash-nav-item.locked { opacity: 0.4; cursor: not-allowed; }
   .dash-nav-item.locked:hover { background: none; }
+  /* -- media uploader (multi-image + video) -------------------------- */
+  .media-uploader { display: flex; flex-direction: column; gap: 12px; }
+  .media-dropzone { border: 1.5px dashed var(--surface-border-strong); border-radius: var(--radius-sm); padding: 22px 18px; text-align: center; cursor: pointer; transition: border-color 0.2s var(--ease), background 0.2s var(--ease); }
+  .media-dropzone:hover, .media-dropzone:focus-visible, .media-dropzone.drag-active { border-color: var(--cyan-glow); background: rgba(56,189,248,0.06); outline: none; }
+  .media-dropzone-copy { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .media-dropzone-title { font-size: 13.5px; color: var(--silver); font-weight: 500; }
+  .media-dropzone-sub { font-size: 11.5px; color: var(--silver-dim); }
+  .media-dropzone-btns { display: flex; gap: 10px; margin: 4px 0; flex-wrap: wrap; justify-content: center; }
+  .media-dropzone-hint { font-size: 11px; color: var(--silver-dim); }
+  .media-preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+  .media-preview-item { position: relative; border-radius: 10px; overflow: hidden; aspect-ratio: 1 / 1; background: var(--surface-strong); border: 1px solid var(--surface-border); }
+  .media-preview-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .media-preview-item.uploading::after { content: ""; position: absolute; inset: 0; background: rgba(3,7,18,0.45); }
+  .media-preview-remove { position: absolute; top: 5px; right: 5px; width: 22px; height: 22px; border-radius: 50%; background: rgba(3,7,18,0.75); border: none; color: #fff; font-size: 14px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 2; }
+  .media-preview-remove:hover { background: #f87171; }
+  .media-preview-badge { position: absolute; bottom: 5px; left: 5px; font-size: 10px; font-family: var(--font-mono); color: #fff; background: rgba(3,7,18,0.6); padding: 1px 6px; border-radius: 6px; }
+  .media-video-preview { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid var(--surface-border); background: #000; }
+  .media-video-preview video { width: 100%; max-height: 280px; display: block; }
+  .media-upload-progress { display: flex; align-items: center; gap: 10px; }
+  .media-upload-progress-bar { flex: 1; height: 6px; border-radius: 999px; background: var(--surface-strong); overflow: hidden; }
+  .media-upload-progress-fill { height: 100%; width: 0%; background: var(--grad-primary, var(--cyan-glow)); transition: width 0.2s linear; }
+  .media-upload-progress-pct { font-size: 11.5px; font-family: var(--font-mono); color: var(--silver-dim); min-width: 34px; text-align: right; }
+  /* -- your-announcements list: gallery thumbnail strip + edit button - */
+  .ann-item-media-strip { display: flex; gap: 6px; overflow-x: auto; margin: 8px 0; }
+  .ann-item-media-strip img, .ann-item-media-strip video { width: 84px; height: 60px; object-fit: cover; border-radius: 8px; flex-shrink: 0; background: #000; }
+  .ann-item-media-more { width: 84px; height: 60px; border-radius: 8px; background: var(--surface-strong); display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--silver-dim); flex-shrink: 0; }
+  .ann-edit-btn { background: none; border: 1px solid var(--surface-border); color: var(--silver); font-size: 12.5px; padding: 6px 12px; border-radius: var(--radius-sm); cursor: pointer; }
+  .ann-edit-btn:hover { color: var(--cyan-glow); border-color: var(--cyan-glow); }
+  .edit-post-modal { max-width: 560px; }
+  .edit-post-modal .field { margin-bottom: 16px; }
   @media (max-width: 760px) {
     .dash-shell { grid-template-columns: 1fr; }
     .dash-side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; }
@@ -191,13 +221,27 @@
         <div class="field"><label>Title</label><input type="text" name="title" maxlength="200" required></div>
         <div class="field"><label>Message</label><textarea name="body" rows="5" maxlength="5000" required></textarea></div>
         <div class="field">
-          <label>Photo (optional)</label>
-          <div class="ann-photo-row">
-            <div class="ann-photo-preview" id="announcement-photo-preview">No photo</div>
-            <div>
-              <input type="file" name="photo" accept="image/*" id="announcement-photo-input">
-              <button type="button" class="ann-photo-remove-btn" id="announcement-photo-remove" style="display:none;">Remove photo</button>
-              <p class="ann-photo-status" id="announcement-photo-status"></p>
+          <label>Media (optional) — up to 10 photos, or 1 short video</label>
+          <div class="media-uploader" id="ann-media-uploader">
+            <div class="media-dropzone" id="ann-dropzone" tabindex="0" role="button" aria-label="Add photos or a video">
+              <input type="file" name="photos" accept="image/*" id="announcement-images-input" multiple hidden>
+              <input type="file" name="video" accept="video/mp4,video/quicktime,video/webm" id="announcement-video-input" hidden>
+              <div class="media-dropzone-copy">
+                <span class="media-dropzone-title">Drag &amp; drop photos or a video here</span>
+                <span class="media-dropzone-sub">or</span>
+                <span class="media-dropzone-btns">
+                  <button type="button" class="btn btn-ghost btn-sm" id="ann-pick-images-btn">Choose photos</button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="ann-pick-video-btn">Choose video</button>
+                </span>
+                <span class="media-dropzone-hint">Photos: up to 10 · Video: MP4/MOV/WEBM, max 100MB, max 2 min</span>
+              </div>
+            </div>
+            <div class="media-preview-grid" id="ann-image-previews"></div>
+            <div class="media-video-preview" id="ann-video-preview" style="display:none;"></div>
+            <p class="ann-photo-status" id="announcement-media-status"></p>
+            <div class="media-upload-progress" id="ann-upload-progress" style="display:none;">
+              <div class="media-upload-progress-bar"><div class="media-upload-progress-fill" id="ann-upload-progress-fill"></div></div>
+              <span class="media-upload-progress-pct" id="ann-upload-progress-pct">0%</span>
             </div>
           </div>
         </div>
@@ -238,6 +282,47 @@
         <div class="msg-list" id="my-announcements-list"><div class="empty-state">Loading your announcements…</div></div>
       </div>
     </section>
+
+    <!-- EDIT POST MODAL -->
+    <div class="phase-preview-overlay" id="edit-post-overlay">
+      <div class="phase-preview-modal glass edit-post-modal">
+        <div class="phase-preview-modal-head">
+          <span>Edit Post</span>
+          <button type="button" class="ann-pin-btn" id="edit-post-close">Close</button>
+        </div>
+        <form id="edit-post-form">
+          <div class="field"><label>Title</label><input type="text" id="edit-post-title" maxlength="200" required></div>
+          <div class="field"><label>Message</label><textarea id="edit-post-body" rows="5" maxlength="5000" required></textarea></div>
+          <div class="field">
+            <label>Media</label>
+            <div class="media-uploader" id="edit-media-uploader">
+              <div class="media-dropzone" id="edit-dropzone" tabindex="0" role="button" aria-label="Add photos or a video">
+                <input type="file" accept="image/*" id="edit-images-input" multiple hidden>
+                <input type="file" accept="video/mp4,video/quicktime,video/webm" id="edit-video-input" hidden>
+                <div class="media-dropzone-copy">
+                  <span class="media-dropzone-title">Drag &amp; drop to add photos or replace the video</span>
+                  <span class="media-dropzone-sub">or</span>
+                  <span class="media-dropzone-btns">
+                    <button type="button" class="btn btn-ghost btn-sm" id="edit-pick-images-btn">Add photos</button>
+                    <button type="button" class="btn btn-ghost btn-sm" id="edit-pick-video-btn">Replace video</button>
+                  </span>
+                  <span class="media-dropzone-hint">Photos: up to 10 total · Video: MP4/MOV/WEBM, max 100MB, max 2 min</span>
+                </div>
+              </div>
+              <div class="media-preview-grid" id="edit-image-previews"></div>
+              <div class="media-video-preview" id="edit-video-preview" style="display:none;"></div>
+              <p class="ann-photo-status" id="edit-media-status"></p>
+              <div class="media-upload-progress" id="edit-upload-progress" style="display:none;">
+                <div class="media-upload-progress-bar"><div class="media-upload-progress-fill" id="edit-upload-progress-fill"></div></div>
+                <span class="media-upload-progress-pct" id="edit-upload-progress-pct">0%</span>
+              </div>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary" id="edit-post-save">Save Changes</button>
+          <p class="form-status" id="edit-post-status"></p>
+        </form>
+      </div>
+    </div>
 
     <!-- NOTIFICATIONS -->
     <section class="dash-panel" data-panel="notifications">
