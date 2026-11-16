@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UB3 Pay - Naira and digital asset wallet</title>
+<meta name="description" content="UB3 Pay is a mobile wallet app for customers in Nigeria: fund and withdraw naira, send money to other users, and hold, send and swap digital assets.">
+<style>
+  :root {
+    --bg: #ffffff; --card: #f6f3ff; --text: #1b1230; --muted: #5b5273;
+    --violet: #7C3AED; --deep: #5B21B6; --hero: #4C1D95; --border: #e4dcf7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f0a1d; --card: #1a1230; --text: #f1ecfb; --muted: #b3a8cf; --border: #2c2150; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 16px; }
+  header.hero { background: var(--hero); color: #fff; padding: 56px 0 64px; border-bottom-left-radius: 36px; border-bottom-right-radius: 36px; }
+  .badge { display: inline-block; background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.28); border-radius: 999px; padding: 4px 12px; font-size: 13px; font-weight: 600; }
+  h1 { font-size: clamp(30px, 6vw, 46px); line-height: 1.15; margin: 16px 0 12px; }
+  .lead { font-size: 18px; max-width: 640px; color: #e6dcff; margin: 0; }
+  main { padding: 8px 0 40px; }
+  section { margin-top: 36px; }
+  h2 { font-size: 24px; margin: 0 0 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 18px; }
+  .card h3 { margin: 0 0 6px; font-size: 17px; color: var(--violet); }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  ul { padding-left: 20px; color: var(--muted); }
+  li { margin-bottom: 6px; }
+  .notice { border-left: 4px solid var(--violet); background: var(--card); border-radius: 12px; padding: 14px 16px; color: var(--muted); font-size: 15px; }
+  .notice strong { color: var(--text); }
+  footer { border-top: 1px solid var(--border); padding: 24px 0 40px; color: var(--muted); font-size: 14px; }
+  a { color: var(--violet); }
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <span class="badge">Currently in private testing</span>
+    <h1>UB3 Pay</h1>
+    <p class="lead">One wallet for your naira and your digital assets. Built for customers in Nigeria.</p>
+  </div>
+</header>
+
+<main class="wrap">
+  <section>
+    <h2>What is UB3 Pay?</h2>
+    <p>UB3 Pay is a mobile wallet app for individual adults in Nigeria. It lets you manage naira and digital assets, including dollar-pegged stablecoins such as USDT and USDC, from one place. UB3 Pay is a separate product from the UB3 research and education platform on this website.</p>
+  </section>
+
+  <section>
+    <h2>What you will be able to do</h2>
+    <div class="grid">
+      <div class="card"><h3>Fund in naira</h3><p>Add money to your wallet by bank transfer to your own dedicated account number.</p></div>
+      <div class="card"><h3>Withdraw to your bank</h3><p>Send naira from your wallet to your own bank account.</p></div>
+      <div class="card"><h3>Send to other users</h3><p>Send naira or digital assets to another UB3 Pay user with their UB3 ID.</p></div>
+      <div class="card"><h3>Hold and swap digital assets</h3><p>Hold, send and swap supported digital assets, including stablecoins, on supported networks.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>How we keep accounts safe</h2>
+    <ul>
+      <li>Every customer is verified with their BVN before they can deposit or withdraw naira.</li>
+      <li>Every transaction is approved with a personal 4-digit PIN, and the app can be locked with the same PIN or biometrics.</li>
+      <li>Daily and per-transaction limits apply.</li>
+      <li>Customer support is available inside the app.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Availability and regulation</h2>
+    <div class="notice">
+      <p style="margin:0 0 8px"><strong>UB3 Pay is not yet publicly available.</strong> It is in private testing. Features that require regulatory approval will launch only after the required approvals or licensed partner arrangements are in place.</p>
+      <p style="margin:0">Digital assets can lose value and their prices can change quickly. Only use money you can afford to put at risk. Nothing on this page is investment advice.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>About the company</h2>
+    <p>UB3 Pay is operated by <strong>Unbound DAO3 UB3 Ltd</strong>, a private company limited by shares registered in Nigeria (RC 9983376).</p>
+    <p>Registered address: No. 151, Sabon Gida, Yahaya Gusau, Gwale Local Government, Kano, Kano State, Nigeria.</p>
+    <p>Contact: <a href="mailto:ub3pay@ub3.org">ub3pay@ub3.org</a></p>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">&copy; <span id="y"></span> Unbound DAO3 UB3 Ltd. All rights reserved.</div>
+</footer>
+<script>document.getElementById('y').textContent = new Date().getFullYear();</script>
+</body>
+</html>
